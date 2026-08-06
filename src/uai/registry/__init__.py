@@ -49,6 +49,11 @@ from .loader import (
     apply_to_registry,
     ConfigError,
 )
+from .env import (
+    get_env_overrides,
+    apply_env_overrides_to_config,
+    apply_env_overrides,
+)
 
 __all__ = [
     "AuthType",
@@ -82,4 +87,7 @@ __all__ = [
     "clear_cache",
     "apply_to_registry",
     "ConfigError",
+    "get_env_overrides",
+    "apply_env_overrides_to_config",
+    "apply_env_overrides",
 ]
