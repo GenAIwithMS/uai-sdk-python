@@ -30,7 +30,7 @@ from .schema import ProviderConfig
 # ---------------------------------------------------------------------------
 
 try:
-    import yaml
+    import yaml  # type: ignore[import-untyped]
 
     _HAS_YAML: bool = True
 except ImportError:  # pragma: no cover
