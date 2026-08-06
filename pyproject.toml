@@ -37,6 +37,7 @@ respx = "^0.20.0"
 ruff = "^0.3.0"
 mypy = "^1.8.0"
 types-PyYAML = "^6.0"
+bandit = "^1.7.0"
 
 [build-system]
 requires = ["poetry-core"]
