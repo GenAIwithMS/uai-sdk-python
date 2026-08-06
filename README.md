@@ -64,16 +64,16 @@ print(result.parsed)
 
 ## Supported Providers
 
-| Provider   | Chat | Streaming | Tools | Vision | Embeddings | Rerank | Audio | Status          |
-|------------|------|-----------|-------|--------|------------|--------|-------|-----------------|
-| DeepSeek   | ✅   | ✅        | ✅    | ❌     | ✅         | ❌     | ❌    | **MVP** (v0.1)  |
-| Qwen       | ✅   | ✅        | ✅    | ✅     | ✅         | ✅     | Partial | **MVP** (v0.1) |
-| GLM        | ✅   | ✅        | ✅    | ❌     | ✅         | ✅     | ❌    | Phase 2         |
-| Kimi       | ✅   | ✅        | ✅    | ❌     | ❌         | ❌     | ❌    | Phase 2         |
-| StepFun    | ✅   | ✅        | ✅    | ✅     | ✅         | ❌     | ❌    | Phase 2         |
-| Doubao     | ✅   | ✅        | ✅    | ✅     | ✅         | ❌     | ❌    | Phase 2         |
-| MiniMax    | ✅   | ✅        | ✅    | ✅     | ✅         | ✅     | ✅    | Phase 2         |
-| Hunyuan    | ✅   | ✅        | ✅    | ✅     | ✅         | ❌     | ❌    | Phase 3         |
+| Provider   | Chat | Streaming | Tools | Vision | Embeddings | Rerank | Audio |
+|------------|------|-----------|-------|--------|------------|--------|-------|
+| DeepSeek   | ✅   | ✅        | ✅    | ❌     | ✅         | ❌     | ❌    |
+| Qwen       | ✅   | ✅        | ✅    | ✅     | ✅         | ✅     | ❌    |
+| GLM        | ✅   | ✅        | ✅    | ❌     | ✅         | ✅     | ❌    |
+| Kimi       | ✅   | ✅        | ✅    | ❌     | ❌         | ❌     | ❌    |
+| StepFun    | ✅   | ✅        | ✅    | ✅     | ✅         | ❌     | ❌    |
+| Doubao     | ✅   | ✅        | ✅    | ✅     | ✅         | ❌     | ❌    |
+| MiniMax    | ✅   | ✅        | ✅    | ✅     | ✅         | ❌     | ✅    |
+| Hunyuan    | ✅   | ✅        | ✅    | ✅     | ✅         | ❌     | ❌    |
 
 ---
 
