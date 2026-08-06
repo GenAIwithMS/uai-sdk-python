@@ -17,8 +17,6 @@ cd uai-sdk-python
 pip install -e .
 ```
 
-Or with Poetry:
-
 
 Once published to PyPI, the command will be:
 ```bash
@@ -97,9 +95,6 @@ print(result.parsed)
 
 Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) first.
 
-### Help Wanted
-
-Issues tagged with [`help-wanted`](https://github.com/your-org/uai-sdk-python/labels/help-wanted) are ready for community contributions — a great place to start.
 
 ### Issue Label Policy
 
