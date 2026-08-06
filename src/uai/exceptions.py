@@ -86,3 +86,7 @@ class FeatureNotSupportedError(UAIError):
 
 class UAITimeoutError(UAIError):
     """Raised when a request exceeds its configured timeout."""
+
+
+class ConfigError(UAIError):
+    """Raised when provider configuration cannot be loaded or validated."""

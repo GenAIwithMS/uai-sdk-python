@@ -12,7 +12,6 @@ six providers (GLM, Kimi, StepFun, Doubao, MiniMax, Hunyuan) are included
 as pre-defined configs so that adapters can be implemented incrementally
 without changing the registry interface.
 
-Reference: Implementation Plan — Sub-module 1.0.2
 """
 
 from __future__ import annotations

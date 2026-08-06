@@ -7,7 +7,6 @@ described across the entire SDK.  These models are the single source of
 truth for provider metadata and are validated at import time so that
 mis-configuration fails fast.
 
-Reference: Implementation Plan — Sub-module 1.0.1
 """
 
 from __future__ import annotations

@@ -40,6 +40,15 @@ from .providers import (
     register_provider,
     check_capability,
 )
+from .loader import (
+    find_config_file,
+    load_config_file,
+    load_config,
+    get_config,
+    clear_cache,
+    apply_to_registry,
+    ConfigError,
+)
 
 __all__ = [
     "AuthType",
@@ -66,4 +75,11 @@ __all__ = [
     "get_default_model",
     "register_provider",
     "check_capability",
+    "find_config_file",
+    "load_config_file",
+    "load_config",
+    "get_config",
+    "clear_cache",
+    "apply_to_registry",
+    "ConfigError",
 ]
