@@ -49,6 +49,17 @@ Each provider has an adapter class implementing:
 
 ### Capability Matrix
 
-Providers advertise which features they support. Unsupported calls raise `FeatureNotSupportedError` rather than silently failing.
+Providers advertise which features each model supports via
+`ProviderCapabilities`, validated at import time and aggregated per provider
+through `ProviderConfig.capabilities`. Unsupported calls raise
+`FeatureNotSupportedError` rather than silently failing.
 
-See [providers.md](providers.md) for the full matrix.
+```python
+from uai.registry import check_capability
+
+# Raises FeatureNotSupportedError if "vision" isn't supported for this model.
+check_capability("deepseek", "deepseek-chat", "vision")
+```
+
+See [providers.md](providers.md) for the full matrix and [configuration.md](configuration.md)
+for how configs are layered and overridden.
