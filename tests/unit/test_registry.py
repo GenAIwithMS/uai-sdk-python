@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
+from uai.exceptions import FeatureNotSupportedError
 from uai.registry.schema import (
     AuthType,
     ProviderCapabilities,
@@ -17,12 +18,11 @@ from uai.registry.schema import (
     ProviderPricing,
     RegionConfig,
 )
-from uai.exceptions import FeatureNotSupportedError
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def sample_capabilities() -> ProviderCapabilities:
@@ -75,6 +75,7 @@ def sample_config(sample_model) -> ProviderConfig:
 # AuthType enum
 # ---------------------------------------------------------------------------
 
+
 class TestAuthType:
     def test_all_members(self):
         assert {e.name for e in AuthType} == {"API_KEY", "BEARER_TOKEN", "OAUTH"}
@@ -87,6 +88,7 @@ class TestAuthType:
 # ---------------------------------------------------------------------------
 # ProviderCapabilities
 # ---------------------------------------------------------------------------
+
 
 class TestProviderCapabilities:
     def test_defaults_all_false(self):
@@ -119,6 +121,7 @@ class TestProviderCapabilities:
 # ProviderPricing
 # ---------------------------------------------------------------------------
 
+
 class TestProviderPricing:
     def test_defaults_to_zero(self):
         pricing = ProviderPricing()
@@ -145,6 +148,7 @@ class TestProviderPricing:
 # ---------------------------------------------------------------------------
 # ProviderModel
 # ---------------------------------------------------------------------------
+
 
 class TestProviderModel:
     def test_valid_model(self, sample_model):
@@ -174,15 +178,11 @@ class TestProviderModel:
 
     def test_context_window_must_be_positive(self):
         with pytest.raises(ValidationError):
-            ProviderModel(
-                id="m", display_name="M", context_window=0, max_output_tokens=500
-            )
+            ProviderModel(id="m", display_name="M", context_window=0, max_output_tokens=500)
 
     def test_max_output_must_be_positive(self):
         with pytest.raises(ValidationError):
-            ProviderModel(
-                id="m", display_name="M", context_window=1000, max_output_tokens=-1
-            )
+            ProviderModel(id="m", display_name="M", context_window=1000, max_output_tokens=-1)
 
     def test_id_stripped(self):
         model = ProviderModel(
@@ -198,6 +198,7 @@ class TestProviderModel:
 # ---------------------------------------------------------------------------
 # RegionConfig
 # ---------------------------------------------------------------------------
+
 
 class TestRegionConfig:
     def test_valid_region(self):
@@ -223,6 +224,7 @@ class TestRegionConfig:
 # ProviderConfig
 # ---------------------------------------------------------------------------
 
+
 class TestProviderConfig:
     def test_valid_config(self, sample_config):
         assert sample_config.name == "deepseek"
@@ -244,7 +246,9 @@ class TestProviderConfig:
             base_url="https://api.deepseek.com/v1",
             auth_type=AuthType.BEARER_TOKEN,
             api_key_env_var="DEEPSEEK_API_KEY",
-            models={"m": ProviderModel(id="m", display_name="M", context_window=10, max_output_tokens=5)},
+            models={
+                "m": ProviderModel(id="m", display_name="M", context_window=10, max_output_tokens=5)
+            },
             default_model="m",
         )
         assert config.name == "deepseek"
@@ -257,7 +261,11 @@ class TestProviderConfig:
                 base_url="https://api.deepseek.com/v1",
                 auth_type=AuthType.BEARER_TOKEN,
                 api_key_env_var="DEEPSEEK_API_KEY",
-                models={"m": ProviderModel(id="m", display_name="M", context_window=10, max_output_tokens=5)},
+                models={
+                    "m": ProviderModel(
+                        id="m", display_name="M", context_window=10, max_output_tokens=5
+                    )
+                },
                 default_model="m",
             )
 
@@ -269,7 +277,11 @@ class TestProviderConfig:
                 base_url="https://api.deepseek.com/v1",
                 auth_type=AuthType.BEARER_TOKEN,
                 api_key_env_var="DEEPSEEK_API_KEY",
-                models={"m": ProviderModel(id="m", display_name="M", context_window=10, max_output_tokens=5)},
+                models={
+                    "m": ProviderModel(
+                        id="m", display_name="M", context_window=10, max_output_tokens=5
+                    )
+                },
                 default_model="m",
             )
 
@@ -283,7 +295,11 @@ class TestProviderConfig:
                 base_url="ftp://api.deepseek.com",
                 auth_type=AuthType.BEARER_TOKEN,
                 api_key_env_var="TEST_KEY",
-                models={"m": ProviderModel(id="m", display_name="M", context_window=10, max_output_tokens=5)},
+                models={
+                    "m": ProviderModel(
+                        id="m", display_name="M", context_window=10, max_output_tokens=5
+                    )
+                },
                 default_model="m",
             )
 
@@ -295,7 +311,11 @@ class TestProviderConfig:
                 base_url="  ",
                 auth_type=AuthType.BEARER_TOKEN,
                 api_key_env_var="TEST_KEY",
-                models={"m": ProviderModel(id="m", display_name="M", context_window=10, max_output_tokens=5)},
+                models={
+                    "m": ProviderModel(
+                        id="m", display_name="M", context_window=10, max_output_tokens=5
+                    )
+                },
                 default_model="m",
             )
 
@@ -309,7 +329,11 @@ class TestProviderConfig:
                 base_url="https://api.test.com/v1",
                 auth_type=AuthType.BEARER_TOKEN,
                 api_key_env_var="TEST_KEY",
-                models={"a": ProviderModel(id="a", display_name="A", context_window=10, max_output_tokens=5)},
+                models={
+                    "a": ProviderModel(
+                        id="a", display_name="A", context_window=10, max_output_tokens=5
+                    )
+                },
                 default_model="nonexistent",
             )
 
@@ -324,7 +348,11 @@ class TestProviderConfig:
                 base_url="https://api.test.com/v1",
                 auth_type=AuthType.BEARER_TOKEN,
                 api_key_env_var="TEST_KEY",
-                models={"m": ProviderModel(id="m", display_name="M", context_window=10, max_output_tokens=5)},
+                models={
+                    "m": ProviderModel(
+                        id="m", display_name="M", context_window=10, max_output_tokens=5
+                    )
+                },
                 default_model="m",
                 timeout=timeout,
             )
@@ -338,7 +366,11 @@ class TestProviderConfig:
                 base_url="https://api.test.com/v1",
                 auth_type=AuthType.BEARER_TOKEN,
                 api_key_env_var="TEST_KEY",
-                models={"m": ProviderModel(id="m", display_name="M", context_window=10, max_output_tokens=5)},
+                models={
+                    "m": ProviderModel(
+                        id="m", display_name="M", context_window=10, max_output_tokens=5
+                    )
+                },
                 default_model="m",
                 max_retries=retries,
             )
@@ -353,7 +385,11 @@ class TestProviderConfig:
                 base_url="https://api.test.com/v1",
                 auth_type=AuthType.BEARER_TOKEN,
                 api_key_env_var="TEST_KEY",
-                models={"m": ProviderModel(id="m", display_name="M", context_window=10, max_output_tokens=5)},
+                models={
+                    "m": ProviderModel(
+                        id="m", display_name="M", context_window=10, max_output_tokens=5
+                    )
+                },
                 default_model="m",
                 rate_limit_rpm=-10,
             )
@@ -368,7 +404,11 @@ class TestProviderConfig:
                 base_url="https://api.test.com/v1",
                 auth_type=AuthType.BEARER_TOKEN,
                 api_key_env_var="TEST_KEY",
-                models={"m": ProviderModel(id="m", display_name="M", context_window=10, max_output_tokens=5)},
+                models={
+                    "m": ProviderModel(
+                        id="m", display_name="M", context_window=10, max_output_tokens=5
+                    )
+                },
                 default_model="m",
                 rogue_field=True,
             )
@@ -381,7 +421,9 @@ class TestProviderConfig:
             display_name="DeepSeek Reasoner",
             context_window=128_000,
             max_output_tokens=32_000,
-            capabilities=ProviderCapabilities(chat=True, streaming=True, tools=True, reasoning=True),
+            capabilities=ProviderCapabilities(
+                chat=True, streaming=True, tools=True, reasoning=True
+            ),
             aliases=[],
         )
         config = ProviderConfig(
@@ -429,6 +471,7 @@ class TestProviderConfig:
 # Integration: capability enforcement
 # ---------------------------------------------------------------------------
 
+
 class TestCapabilityEnforcement:
     """Verify that the schema supports capability-aware request gating."""
 
@@ -451,6 +494,7 @@ class TestCapabilityEnforcement:
 # Multiple providers with different capability sets
 # ---------------------------------------------------------------------------
 
+
 class TestMultiProviderCapabilities:
     @pytest.fixture
     def qwen_config(self) -> ProviderConfig:
@@ -468,8 +512,12 @@ class TestMultiProviderCapabilities:
                     max_output_tokens=8_192,
                     pricing=ProviderPricing(input_cost_per_1k=0.002, output_cost_per_1k=0.006),
                     capabilities=ProviderCapabilities(
-                        chat=True, streaming=True, tools=True,
-                        vision=True, embeddings=True, rerank=True,
+                        chat=True,
+                        streaming=True,
+                        tools=True,
+                        vision=True,
+                        embeddings=True,
+                        rerank=True,
                     ),
                     aliases=["qwen-plus-0824"],
                 )

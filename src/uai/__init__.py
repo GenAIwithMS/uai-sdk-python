@@ -5,29 +5,29 @@ A modular, extensible AI infrastructure layer that abstracts multiple LLM
 providers behind a single, stable API with an opt-in middleware architecture.
 """
 
+import contextlib
+
 from uai.exceptions import (
     FeatureNotSupportedError,
+    ResponseParsingError,
     UAIAuthenticationError,
     UAIError,
     UAIErrorGroup,
     UAINetworkError,
     UAIRateLimitError,
-    ResponseParsingError,
 )
 
 __version__ = "0.1.0"
 __all__ = [
-    "UniversalAI",
+    "FeatureNotSupportedError",
+    "ResponseParsingError",
+    "UAIAuthenticationError",
     "UAIError",
     "UAIErrorGroup",
-    "UAIAuthenticationError",
     "UAINetworkError",
     "UAIRateLimitError",
-    "ResponseParsingError",
-    "FeatureNotSupportedError",
+    "UniversalAI",
 ]
 
-try:
+with contextlib.suppress(ImportError):
     from uai.client import UniversalAI
-except ImportError:
-    pass

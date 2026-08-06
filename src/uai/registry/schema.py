@@ -12,7 +12,6 @@ mis-configuration fails fast.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Optional
 
 from pydantic import (
     BaseModel,
@@ -26,6 +25,7 @@ from pydantic import (
 # Enums
 # ---------------------------------------------------------------------------
 
+
 class AuthType(str, Enum):
     """Supported authentication methods for provider API access."""
 
@@ -37,6 +37,7 @@ class AuthType(str, Enum):
 # ---------------------------------------------------------------------------
 # Nested models
 # ---------------------------------------------------------------------------
+
 
 class ProviderCapabilities(BaseModel):
     """
@@ -75,10 +76,9 @@ class ProviderPricing(BaseModel):
 
     def cost_for(self, input_tokens: int, output_tokens: int) -> float:
         """Return the approximate cost in USD for a given token split."""
-        return (
-            (input_tokens / 1_000) * self.input_cost_per_1k
-            + (output_tokens / 1_000) * self.output_cost_per_1k
-        )
+        return (input_tokens / 1_000) * self.input_cost_per_1k + (
+            output_tokens / 1_000
+        ) * self.output_cost_per_1k
 
 
 class ProviderModel(BaseModel):
@@ -88,12 +88,8 @@ class ProviderModel(BaseModel):
 
     id: str = Field(min_length=1, description="Machine-readable model identifier.")
     display_name: str = Field(min_length=1, description="Human-readable name.")
-    context_window: int = Field(
-        gt=0, description="Maximum context window size in tokens."
-    )
-    max_output_tokens: int = Field(
-        gt=0, description="Maximum output tokens per request."
-    )
+    context_window: int = Field(gt=0, description="Maximum context window size in tokens.")
+    max_output_tokens: int = Field(gt=0, description="Maximum output tokens per request.")
     pricing: ProviderPricing = Field(
         default_factory=ProviderPricing, description="Pricing metadata."
     )
@@ -101,9 +97,7 @@ class ProviderModel(BaseModel):
         default_factory=ProviderCapabilities,
         description="Capability matrix for this specific model.",
     )
-    aliases: List[str] = Field(
-        default_factory=list, description="Alternative names for the model."
-    )
+    aliases: list[str] = Field(default_factory=list, description="Alternative names for the model.")
 
     @field_validator("id")
     @classmethod
@@ -126,10 +120,11 @@ class RegionConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     base_url: str = Field(min_length=1, description="Region-specific base URL.")
-    auth_type: Optional[AuthType] = Field(
-        default=None, description="Override auth type for this region (falls back to provider default)."
+    auth_type: AuthType | None = Field(
+        default=None,
+        description="Override auth type for this region (falls back to provider default).",
     )
-    api_key_env_var: Optional[str] = Field(
+    api_key_env_var: str | None = Field(
         default=None,
         description="Override environment variable name for the API key in this region.",
     )
@@ -149,6 +144,7 @@ class RegionConfig(BaseModel):
 # Top-level provider config
 # ---------------------------------------------------------------------------
 
+
 class ProviderConfig(BaseModel):
     """
     Complete configuration for a single LLM provider.
@@ -164,47 +160,35 @@ class ProviderConfig(BaseModel):
         min_length=1,
         description="Canonical provider name (lowercase, no spaces, used as key).",
     )
-    display_name: str = Field(
-        min_length=1, description="Human-friendly provider name."
-    )
-    base_url: str = Field(
-        min_length=1, description="Base URL for the provider API."
-    )
+    display_name: str = Field(min_length=1, description="Human-friendly provider name.")
+    base_url: str = Field(min_length=1, description="Base URL for the provider API.")
     auth_type: AuthType = Field(description="Authentication method.")
     api_key_env_var: str = Field(
         min_length=1,
         description="Environment variable name from which to read the API key/token.",
     )
-    models: Dict[str, ProviderModel] = Field(
+    models: dict[str, ProviderModel] = Field(
         default_factory=dict,
         description="Mapping of model_id -> ProviderModel metadata.",
     )
     default_model: str = Field(
         min_length=1, description="Model used when no model is explicitly requested."
     )
-    api_version: str = Field(
-        default="v1", description="Provider API version."
-    )
+    api_version: str = Field(default="v1", description="Provider API version.")
     timeout: float = Field(
         default=30.0, gt=0, le=300, description="Default request timeout (seconds)."
     )
-    max_retries: int = Field(
-        default=3, ge=0, le=10, description="Maximum retry attempts."
-    )
-    rate_limit_rpm: Optional[int] = Field(
-        default=None, ge=0, description="Requests per minute limit."
-    )
-    rate_limit_tpm: Optional[int] = Field(
-        default=None, ge=0, description="Tokens per minute limit."
-    )
-    documentation_url: Optional[str] = Field(
+    max_retries: int = Field(default=3, ge=0, le=10, description="Maximum retry attempts.")
+    rate_limit_rpm: int | None = Field(default=None, ge=0, description="Requests per minute limit.")
+    rate_limit_tpm: int | None = Field(default=None, ge=0, description="Tokens per minute limit.")
+    documentation_url: str | None = Field(
         default=None, description="URL to provider documentation."
     )
     organization_required: bool = Field(
         default=False,
         description="Whether an org ID is required (e.g. OpenAI-style org header).",
     )
-    regions: Dict[str, RegionConfig] = Field(
+    regions: dict[str, RegionConfig] = Field(
         default_factory=dict,
         description="Region-specific overrides keyed by region slug.",
     )
@@ -242,7 +226,7 @@ class ProviderConfig(BaseModel):
         return cleaned
 
     @model_validator(mode="after")
-    def _validate_models_and_default(self) -> "ProviderConfig":
+    def _validate_models_and_default(self) -> ProviderConfig:
         # default_model must reference an entry in models
         if self.default_model not in self.models:
             raise ValueError(
@@ -298,7 +282,7 @@ class ProviderConfig(BaseModel):
         )
 
     @property
-    def all_model_ids(self) -> List[str]:
+    def all_model_ids(self) -> list[str]:
         """Return all primary model ids plus their aliases."""
         ids: list[str] = []
         for model_id, model in self.models.items():

@@ -8,7 +8,7 @@ applications to catch any SDK-related failure with a single
 
 from __future__ import annotations
 
-from typing import Any, List, Optional
+from typing import Any
 
 
 class UAIError(Exception):
@@ -18,10 +18,10 @@ class UAIError(Exception):
         self,
         message: str = "",
         *,
-        provider: Optional[str] = None,
-        model: Optional[str] = None,
-        status_code: Optional[int] = None,
-        response_body: Optional[Any] = None,
+        provider: str | None = None,
+        model: str | None = None,
+        status_code: int | None = None,
+        response_body: Any | None = None,
     ) -> None:
         self.provider = provider
         self.model = model
@@ -33,7 +33,7 @@ class UAIError(Exception):
 class UAIErrorGroup(UAIError):
     """Raised when multiple errors occur (e.g. fallback across providers)."""
 
-    def __init__(self, errors: List[UAIError], message: str = "") -> None:
+    def __init__(self, errors: list[UAIError], message: str = "") -> None:
         self.errors = errors
         super().__init__(message or f"Multiple errors: {len(errors)} failures")
 
@@ -53,7 +53,7 @@ class UAIRateLimitError(UAIError):
         self,
         message: str = "",
         *,
-        retry_after: Optional[float] = None,
+        retry_after: float | None = None,
         **kwargs: Any,
     ) -> None:
         self.retry_after = retry_after
@@ -71,9 +71,9 @@ class FeatureNotSupportedError(UAIError):
         self,
         message: str = "",
         *,
-        feature: Optional[str] = None,
-        provider: Optional[str] = None,
-        model: Optional[str] = None,
+        feature: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
     ) -> None:
         self.feature = feature
         full_msg = message or f"Feature '{feature}' is not supported"

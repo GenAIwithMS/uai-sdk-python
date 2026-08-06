@@ -16,8 +16,6 @@ without changing the registry interface.
 
 from __future__ import annotations
 
-from typing import Dict, List
-
 from uai.exceptions import FeatureNotSupportedError
 
 from .schema import (
@@ -28,7 +26,6 @@ from .schema import (
     ProviderPricing,
     RegionConfig,
 )
-
 
 # ---------------------------------------------------------------------------
 # Provider definitions
@@ -223,9 +220,7 @@ QWEN_CONFIG = ProviderConfig(
     rate_limit_tpm=20_000,
     documentation_url="https://help.aliyun.com/zh/model-studio/",
     regions={
-        "cn-hangzhou": RegionConfig(
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
-        ),
+        "cn-hangzhou": RegionConfig(base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"),
         "cn-beijing": RegionConfig(
             base_url="https://dashscope.cn-beijing.aliyuncs.com/compatible-mode/v1"
         ),
@@ -240,9 +235,16 @@ _GLM_5_1 = ProviderModel(
     max_output_tokens=16_000,
     pricing=ProviderPricing(input_cost_per_1k=0.1, output_cost_per_1k=0.1),
     capabilities=ProviderCapabilities(
-        chat=True, streaming=True, tools=True,
-        vision=False, embeddings=True, audio=False,
-        reasoning=False, rerank=True, tts=False, transcription=False,
+        chat=True,
+        streaming=True,
+        tools=True,
+        vision=False,
+        embeddings=True,
+        audio=False,
+        reasoning=False,
+        rerank=True,
+        tts=False,
+        transcription=False,
     ),
     aliases=["glm-5.1-flashx", "glm-5.1-z1"],
 )
@@ -254,9 +256,16 @@ _GLM_4_7 = ProviderModel(
     max_output_tokens=16_000,
     pricing=ProviderPricing(input_cost_per_1k=0.25, output_cost_per_1k=0.25),
     capabilities=ProviderCapabilities(
-        chat=True, streaming=True, tools=True,
-        vision=False, embeddings=True, audio=False,
-        reasoning=True, rerank=True, tts=False, transcription=False,
+        chat=True,
+        streaming=True,
+        tools=True,
+        vision=False,
+        embeddings=True,
+        audio=False,
+        reasoning=True,
+        rerank=True,
+        tts=False,
+        transcription=False,
     ),
     aliases=["glm-4.7-flash", "glm-4.5v"],
 )
@@ -268,9 +277,16 @@ _GLM_EMBEDDING = ProviderModel(
     max_output_tokens=1,
     pricing=ProviderPricing(input_cost_per_1k=0.0005, output_cost_per_1k=0.0),
     capabilities=ProviderCapabilities(
-        chat=False, streaming=False, tools=False,
-        vision=False, embeddings=True, audio=False,
-        reasoning=False, rerank=True, tts=False, transcription=False,
+        chat=False,
+        streaming=False,
+        tools=False,
+        vision=False,
+        embeddings=True,
+        audio=False,
+        reasoning=False,
+        rerank=True,
+        tts=False,
+        transcription=False,
     ),
     aliases=["embedding-3"],
 )
@@ -303,9 +319,16 @@ _KIMI_K2_5 = ProviderModel(
     max_output_tokens=8_192,
     pricing=ProviderPricing(input_cost_per_1k=0.0015, output_cost_per_1k=0.006),
     capabilities=ProviderCapabilities(
-        chat=True, streaming=True, tools=True,
-        vision=False, embeddings=False, audio=False,
-        reasoning=False, rerank=False, tts=False, transcription=False,
+        chat=True,
+        streaming=True,
+        tools=True,
+        vision=False,
+        embeddings=False,
+        audio=False,
+        reasoning=False,
+        rerank=False,
+        tts=False,
+        transcription=False,
     ),
     aliases=["kimi-k2.5-preview", "kimi-latest"],
 )
@@ -317,9 +340,16 @@ _KIMI_K1_5 = ProviderModel(
     max_output_tokens=8_192,
     pricing=ProviderPricing(input_cost_per_1k=0.0015, output_cost_per_1k=0.006),
     capabilities=ProviderCapabilities(
-        chat=True, streaming=True, tools=True,
-        vision=False, embeddings=False, audio=False,
-        reasoning=False, rerank=False, tts=False, transcription=False,
+        chat=True,
+        streaming=True,
+        tools=True,
+        vision=False,
+        embeddings=False,
+        audio=False,
+        reasoning=False,
+        rerank=False,
+        tts=False,
+        transcription=False,
     ),
     aliases=["moonshot-v1"],
 )
@@ -351,9 +381,16 @@ _STEPFUN_2_5 = ProviderModel(
     max_output_tokens=8_192,
     pricing=ProviderPricing(input_cost_per_1k=0.001, output_cost_per_1k=0.003),
     capabilities=ProviderCapabilities(
-        chat=True, streaming=True, tools=True,
-        vision=False, embeddings=False, audio=False,
-        reasoning=False, rerank=False, tts=False, transcription=False,
+        chat=True,
+        streaming=True,
+        tools=True,
+        vision=False,
+        embeddings=False,
+        audio=False,
+        reasoning=False,
+        rerank=False,
+        tts=False,
+        transcription=False,
     ),
     aliases=["step-1216"],
 )
@@ -365,9 +402,16 @@ _STEPFUN_VISION = ProviderModel(
     max_output_tokens=8_192,
     pricing=ProviderPricing(input_cost_per_1k=0.002, output_cost_per_1k=0.006),
     capabilities=ProviderCapabilities(
-        chat=True, streaming=True, tools=True,
-        vision=True, embeddings=True, audio=False,
-        reasoning=False, rerank=False, tts=False, transcription=False,
+        chat=True,
+        streaming=True,
+        tools=True,
+        vision=True,
+        embeddings=True,
+        audio=False,
+        reasoning=False,
+        rerank=False,
+        tts=False,
+        transcription=False,
     ),
     aliases=["step-vision-1216", "step-1216v"],
 )
@@ -399,9 +443,16 @@ _DOUBEO_PRO_32K = ProviderModel(
     max_output_tokens=8_192,
     pricing=ProviderPricing(input_cost_per_1k=0.0007, output_cost_per_1k=0.0021),
     capabilities=ProviderCapabilities(
-        chat=True, streaming=True, tools=True,
-        vision=False, embeddings=False, audio=False,
-        reasoning=False, rerank=False, tts=False, transcription=False,
+        chat=True,
+        streaming=True,
+        tools=True,
+        vision=False,
+        embeddings=False,
+        audio=False,
+        reasoning=False,
+        rerank=False,
+        tts=False,
+        transcription=False,
     ),
     aliases=["doubao-pro-32k-241115", "doubao-pro-32k-latest"],
 )
@@ -413,9 +464,16 @@ _DOUBEO_VISION = ProviderModel(
     max_output_tokens=8_192,
     pricing=ProviderPricing(input_cost_per_1k=0.002, output_cost_per_1k=0.006),
     capabilities=ProviderCapabilities(
-        chat=True, streaming=True, tools=True,
-        vision=True, embeddings=True, audio=False,
-        reasoning=False, rerank=False, tts=False, transcription=False,
+        chat=True,
+        streaming=True,
+        tools=True,
+        vision=True,
+        embeddings=True,
+        audio=False,
+        reasoning=False,
+        rerank=False,
+        tts=False,
+        transcription=False,
     ),
     aliases=["doubao-vision-v0"],
 )
@@ -427,9 +485,16 @@ _DOUBEO_EMBEDDING = ProviderModel(
     max_output_tokens=1,
     pricing=ProviderPricing(input_cost_per_1k=0.0003, output_cost_per_1k=0.0),
     capabilities=ProviderCapabilities(
-        chat=False, streaming=False, tools=False,
-        vision=False, embeddings=True, audio=False,
-        reasoning=False, rerank=False, tts=False, transcription=False,
+        chat=False,
+        streaming=False,
+        tools=False,
+        vision=False,
+        embeddings=True,
+        audio=False,
+        reasoning=False,
+        rerank=False,
+        tts=False,
+        transcription=False,
     ),
     aliases=["doubao-embedding-text-01"],
 )
@@ -463,9 +528,16 @@ _MINIMAX_M2_5 = ProviderModel(
     max_output_tokens=8_192,
     pricing=ProviderPricing(input_cost_per_1k=0.0005, output_cost_per_1k=0.0015),
     capabilities=ProviderCapabilities(
-        chat=True, streaming=True, tools=True,
-        vision=True, embeddings=True, audio=True,
-        reasoning=False, rerank=False, tts=True, transcription=True,
+        chat=True,
+        streaming=True,
+        tools=True,
+        vision=True,
+        embeddings=True,
+        audio=True,
+        reasoning=False,
+        rerank=False,
+        tts=True,
+        transcription=True,
     ),
     aliases=["minimax-m2.5-turbo", "minimax-v2-0"],
 )
@@ -477,9 +549,16 @@ _MINIMAX_EMBEDDING = ProviderModel(
     max_output_tokens=1,
     pricing=ProviderPricing(input_cost_per_1k=0.0003, output_cost_per_1k=0.0),
     capabilities=ProviderCapabilities(
-        chat=False, streaming=False, tools=False,
-        vision=False, embeddings=True, audio=False,
-        reasoning=False, rerank=False, tts=False, transcription=False,
+        chat=False,
+        streaming=False,
+        tools=False,
+        vision=False,
+        embeddings=True,
+        audio=False,
+        reasoning=False,
+        rerank=False,
+        tts=False,
+        transcription=False,
     ),
     aliases=["minimax-embedding-0715"],
 )
@@ -511,9 +590,16 @@ _HUNYUAN_TURBO = ProviderModel(
     max_output_tokens=8_192,
     pricing=ProviderPricing(input_cost_per_1k=0.001, output_cost_per_1k=0.002),
     capabilities=ProviderCapabilities(
-        chat=True, streaming=True, tools=True,
-        vision=False, embeddings=False, audio=False,
-        reasoning=False, rerank=False, tts=False, transcription=False,
+        chat=True,
+        streaming=True,
+        tools=True,
+        vision=False,
+        embeddings=False,
+        audio=False,
+        reasoning=False,
+        rerank=False,
+        tts=False,
+        transcription=False,
     ),
     aliases=["hunyuan-turbo-128k"],
 )
@@ -525,9 +611,16 @@ _HUNYUAN_PRO = ProviderModel(
     max_output_tokens=8_192,
     pricing=ProviderPricing(input_cost_per_1k=0.0015, output_cost_per_1k=0.003),
     capabilities=ProviderCapabilities(
-        chat=True, streaming=True, tools=True,
-        vision=False, embeddings=False, audio=False,
-        reasoning=True, rerank=False, tts=False, transcription=False,
+        chat=True,
+        streaming=True,
+        tools=True,
+        vision=False,
+        embeddings=False,
+        audio=False,
+        reasoning=True,
+        rerank=False,
+        tts=False,
+        transcription=False,
     ),
     aliases=["hunyuan-pro-200k"],
 )
@@ -539,9 +632,16 @@ _HUNYUAN_VISION = ProviderModel(
     max_output_tokens=4_096,
     pricing=ProviderPricing(input_cost_per_1k=0.003, output_cost_per_1k=0.006),
     capabilities=ProviderCapabilities(
-        chat=True, streaming=True, tools=True,
-        vision=True, embeddings=True, audio=False,
-        reasoning=False, rerank=False, tts=False, transcription=False,
+        chat=True,
+        streaming=True,
+        tools=True,
+        vision=True,
+        embeddings=True,
+        audio=False,
+        reasoning=False,
+        rerank=False,
+        tts=False,
+        transcription=False,
     ),
     aliases=["hunyuan-vision-1120"],
 )
@@ -553,9 +653,16 @@ _HUNYUAN_EMBEDDING = ProviderModel(
     max_output_tokens=1,
     pricing=ProviderPricing(input_cost_per_1k=0.0002, output_cost_per_1k=0.0),
     capabilities=ProviderCapabilities(
-        chat=False, streaming=False, tools=False,
-        vision=False, embeddings=True, audio=False,
-        reasoning=False, rerank=False, tts=False, transcription=False,
+        chat=False,
+        streaming=False,
+        tools=False,
+        vision=False,
+        embeddings=True,
+        audio=False,
+        reasoning=False,
+        rerank=False,
+        tts=False,
+        transcription=False,
     ),
     aliases=["hunyuan-embedding-embedding"],
 )
@@ -591,7 +698,7 @@ HUNYUAN_CONFIG = ProviderConfig(
 # ``PROVIDER_REGISTRY`` is a *mutable* dict so that Phase 2's loader can
 # inject user-supplied configs at runtime, but the built-in providers are
 # never removed.
-PROVIDER_REGISTRY: Dict[str, ProviderConfig] = {
+PROVIDER_REGISTRY: dict[str, ProviderConfig] = {
     "deepseek": DEEPSEEK_CONFIG,
     "qwen": QWEN_CONFIG,
     "glm": GLM_CONFIG,
@@ -603,10 +710,10 @@ PROVIDER_REGISTRY: Dict[str, ProviderConfig] = {
 }
 
 # The subset of providers targeted for the MVP release.
-MVP_PROVIDERS: List[str] = ["deepseek", "qwen"]
+MVP_PROVIDERS: list[str] = ["deepseek", "qwen"]
 
 # Ordered by roadmap phase for predictable iteration.
-PROVIDER_ORDER: List[str] = [
+PROVIDER_ORDER: list[str] = [
     "deepseek",
     "qwen",
     "glm",
@@ -630,20 +737,19 @@ def get_provider_config(provider_name: str) -> ProviderConfig:
     if key not in PROVIDER_REGISTRY:
         available = ", ".join(PROVIDER_REGISTRY.keys())
         raise ValueError(
-            f"Provider '{provider_name}' is not registered. "
-            f"Available providers: {available}"
+            f"Provider '{provider_name}' is not registered. Available providers: {available}"
         )
     return PROVIDER_REGISTRY[key]
 
 
-def list_providers() -> List[str]:
+def list_providers() -> list[str]:
     """
     Return a list of all registered provider names, ordered by roadmap phase.
     """
     return [name for name in PROVIDER_ORDER if name in PROVIDER_REGISTRY]
 
 
-def list_mvp_providers() -> List[str]:
+def list_mvp_providers() -> list[str]:
     """Return only the providers targeted for the MVP release."""
     return [name for name in MVP_PROVIDERS if name in PROVIDER_REGISTRY]
 
@@ -690,8 +796,7 @@ def register_provider(config: ProviderConfig, override: bool = False) -> Provide
     key = config.name.lower()
     if key in PROVIDER_REGISTRY and not override:
         raise ValueError(
-            f"Provider '{key}' is already registered. "
-            "Pass override=True to replace it."
+            f"Provider '{key}' is already registered. Pass override=True to replace it."
         )
     PROVIDER_REGISTRY[key] = config
     if key not in PROVIDER_ORDER:
@@ -699,9 +804,7 @@ def register_provider(config: ProviderConfig, override: bool = False) -> Provide
     return config
 
 
-def check_capability(
-    provider_name: str, model_id: str, capability: str
-) -> None:
+def check_capability(provider_name: str, model_id: str, capability: str) -> None:
     """
     Assert that *provider* / *model* supports *capability*.
 
@@ -721,6 +824,4 @@ def check_capability(
         )
 
     if not getattr(model.capabilities, capability):
-        raise FeatureNotSupportedError(
-            feature=capability, provider=provider_name, model=model_id
-        )
+        raise FeatureNotSupportedError(feature=capability, provider=provider_name, model=model_id)

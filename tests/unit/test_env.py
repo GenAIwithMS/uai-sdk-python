@@ -13,24 +13,23 @@ Tests cover:
 from __future__ import annotations
 
 import logging
-from typing import Dict
 
 import pytest
 
 from uai.registry import (
+    PROVIDER_REGISTRY,
     apply_env_overrides,
     apply_env_overrides_to_config,
     get_env_overrides,
     get_provider_config,
-    PROVIDER_REGISTRY,
 )
 from uai.registry.env import _parse_bool
-from uai.registry.schema import AuthType, ProviderConfig, ProviderModel
-
+from uai.registry.schema import AuthType
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _set_env(monkeypatch: pytest.MonkeyPatch, name: str, value: str):
     monkeypatch.setenv(name, value)
@@ -47,6 +46,7 @@ def _clear_provider_env(monkeypatch: pytest.MonkeyPatch, provider_name: str):
 # ---------------------------------------------------------------------------
 # _parse_bool
 # ---------------------------------------------------------------------------
+
 
 class TestParseBool:
     @pytest.mark.parametrize("val", ["true", "True", "TRUE", "1", "yes", "on"])
@@ -67,6 +67,7 @@ class TestParseBool:
 # BASE_URL override
 # ---------------------------------------------------------------------------
 
+
 class TestBaseUrlOverride:
     def test_override_deepseek_base_url(self, monkeypatch):
         _set_env(monkeypatch, "UAI_PROVIDER_DEEPSEEK_BASE_URL", "https://staging.deepseek.com/v1")
@@ -75,7 +76,9 @@ class TestBaseUrlOverride:
         assert overrides["base_url"] == "https://staging.deepseek.com/v1"
 
     def test_override_with_trailing_whitespace(self, monkeypatch):
-        _set_env(monkeypatch, "UAI_PROVIDER_DEEPSEEK_BASE_URL", "  https://staging.deepseek.com/v1  ")
+        _set_env(
+            monkeypatch, "UAI_PROVIDER_DEEPSEEK_BASE_URL", "  https://staging.deepseek.com/v1  "
+        )
         overrides = get_env_overrides("deepseek")
         assert overrides["base_url"] == "https://staging.deepseek.com/v1"
 
@@ -83,6 +86,7 @@ class TestBaseUrlOverride:
 # ---------------------------------------------------------------------------
 # TIMEOUT override
 # ---------------------------------------------------------------------------
+
 
 class TestTimeoutOverride:
     def test_override_timeout(self, monkeypatch):
@@ -111,6 +115,7 @@ class TestTimeoutOverride:
 # MAX_RETRIES override
 # ---------------------------------------------------------------------------
 
+
 class TestMaxRetriesOverride:
     def test_override_max_retries(self, monkeypatch):
         _set_env(monkeypatch, "UAI_PROVIDER_DEEPSEEK_MAX_RETRIES", "5")
@@ -127,6 +132,7 @@ class TestMaxRetriesOverride:
 # ---------------------------------------------------------------------------
 # Rate limit overrides
 # ---------------------------------------------------------------------------
+
 
 class TestRateLimitOverrides:
     def test_override_rpm(self, monkeypatch):
@@ -151,6 +157,7 @@ class TestRateLimitOverrides:
 # Auth type override
 # ---------------------------------------------------------------------------
 
+
 class TestAuthTypeOverride:
     def test_override_to_api_key(self, monkeypatch):
         _set_env(monkeypatch, "UAI_PROVIDER_DEEPSEEK_AUTH_TYPE", "API_KEY")
@@ -173,6 +180,7 @@ class TestAuthTypeOverride:
 # API key env var override
 # ---------------------------------------------------------------------------
 
+
 class TestApiKeyEnvOverride:
     def test_override_api_key_env(self, monkeypatch):
         _set_env(monkeypatch, "UAI_PROVIDER_DEEPSEEK_API_KEY_ENV", "MY_DEEPSEEK_KEY")
@@ -188,6 +196,7 @@ class TestApiKeyEnvOverride:
 # ---------------------------------------------------------------------------
 # Feature-flag boolean overrides
 # ---------------------------------------------------------------------------
+
 
 class TestFeatureFlags:
     def test_disable_vision(self, monkeypatch, clean_registry):
@@ -232,6 +241,7 @@ class TestFeatureFlags:
 # apply_env_overrides_to_config
 # ---------------------------------------------------------------------------
 
+
 class TestApplyEnvOverridesToConfig:
     def test_returns_same_object_when_no_overrides(self, monkeypatch):
         config = get_provider_config("deepseek")
@@ -275,16 +285,44 @@ class TestApplyEnvOverridesToConfig:
 # apply_env_overrides (all providers)
 # ---------------------------------------------------------------------------
 
+
 class TestApplyEnvOverridesAll:
     def test_no_env_vars_returns_all_originals(self, monkeypatch):
         """No env overrides set → all configs returned by reference."""
         # Remove all UAI_PROVIDER_* env vars
-        provider_names = ["deepseek", "qwen", "glm", "kimi", "stepfun", "doubao", "minimax", "hunyuan"]
-        fields = ["BASE_URL", "TIMEOUT", "MAX_RETRIES", "RATE_LIMIT_RPM",
-                  "RATE_LIMIT_TPM", "AUTH_TYPE", "API_KEY_ENV", "API_VERSION",
-                  "DOCUMENTATION_URL"]
-        capabilities = ["CHAT", "STREAMING", "TOOLS", "VISION", "EMBEDDINGS",
-                        "AUDIO", "REASONING", "RERANK", "TTS", "TRANSCRIPTION"]
+        provider_names = [
+            "deepseek",
+            "qwen",
+            "glm",
+            "kimi",
+            "stepfun",
+            "doubao",
+            "minimax",
+            "hunyuan",
+        ]
+        fields = [
+            "BASE_URL",
+            "TIMEOUT",
+            "MAX_RETRIES",
+            "RATE_LIMIT_RPM",
+            "RATE_LIMIT_TPM",
+            "AUTH_TYPE",
+            "API_KEY_ENV",
+            "API_VERSION",
+            "DOCUMENTATION_URL",
+        ]
+        capabilities = [
+            "CHAT",
+            "STREAMING",
+            "TOOLS",
+            "VISION",
+            "EMBEDDINGS",
+            "AUDIO",
+            "REASONING",
+            "RERANK",
+            "TTS",
+            "TRANSCRIPTION",
+        ]
         for name in provider_names:
             upper = name.upper()
             for field in fields:
@@ -321,10 +359,12 @@ class TestApplyEnvOverridesAll:
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def clean_registry():
     """Snapshot and restore the global registry around tests."""
-    from uai.registry import PROVIDER_ORDER, MVP_PROVIDERS, register_provider
+    from uai.registry import MVP_PROVIDERS, PROVIDER_ORDER
+
     saved_registry = PROVIDER_REGISTRY.copy()
     saved_order = PROVIDER_ORDER.copy()
     saved_mvp = MVP_PROVIDERS.copy()

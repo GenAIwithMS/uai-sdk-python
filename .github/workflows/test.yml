@@ -53,9 +53,6 @@ jobs:
       - name: Run MyPy type checker
         run: poetry run mypy src --ignore-missing-imports
 
-      - name: Run Pytest lint rules
-        run: poetry run pytest --ruff --mypy
-
   test:
     name: Test (py${{ matrix.python-version }})
     runs-on: ubuntu-latest

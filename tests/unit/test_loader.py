@@ -20,21 +20,21 @@ import pytest
 
 from uai.exceptions import ConfigError
 from uai.registry import (
+    PROVIDER_REGISTRY,
+    apply_to_registry,
     clear_cache,
     find_config_file,
+    get_config,
+    get_provider_config,
     load_config,
     load_config_file,
-    get_config,
-    apply_to_registry,
-    PROVIDER_REGISTRY,
-    get_provider_config,
 )
-from uai.registry.schema import AuthType, ProviderCapabilities, ProviderConfig
-
+from uai.registry.schema import AuthType
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def yaml_override_config(tmp_path: Path) -> Path:
@@ -132,7 +132,8 @@ def missing_providers_key(tmp_path: Path) -> Path:
 @pytest.fixture
 def clean_registry():
     """Snapshot and restore the global registry around tests."""
-    from uai.registry import PROVIDER_ORDER, MVP_PROVIDERS
+    from uai.registry import MVP_PROVIDERS, PROVIDER_ORDER
+
     saved_registry = PROVIDER_REGISTRY.copy()
     saved_order = PROVIDER_ORDER.copy()
     saved_mvp = MVP_PROVIDERS.copy()
@@ -152,6 +153,7 @@ def clean_registry():
 # ---------------------------------------------------------------------------
 # load_config_file — YAML
 # ---------------------------------------------------------------------------
+
 
 class TestLoadConfigYaml:
     def test_override_existing_provider(self, yaml_override_config):
@@ -186,6 +188,7 @@ class TestLoadConfigYaml:
 # load_config_file — JSON
 # ---------------------------------------------------------------------------
 
+
 class TestLoadConfigJson:
     def test_override_default_model(self, json_override_config):
         """Override Qwen's default_model via JSON."""
@@ -206,6 +209,7 @@ class TestLoadConfigJson:
 # ---------------------------------------------------------------------------
 # load_config_file — new providers
 # ---------------------------------------------------------------------------
+
 
 class TestLoadConfigNewProvider:
     def test_add_new_provider(self, new_provider_config):
@@ -234,10 +238,9 @@ class TestLoadConfigNewProvider:
 # apply_to_registry
 # ---------------------------------------------------------------------------
 
+
 class TestApplyToRegistry:
-    def test_apply_override_to_global_registry(
-        self, yaml_override_config, clean_registry
-    ):
+    def test_apply_override_to_global_registry(self, yaml_override_config, clean_registry):
         clear_cache()
         configs = load_config_file(yaml_override_config)
         applied = apply_to_registry(configs)
@@ -248,9 +251,7 @@ class TestApplyToRegistry:
         assert ds.base_url == "https://custom.deepseek.com/v1"
         assert ds.timeout == 45.0
 
-    def test_apply_new_provider_to_registry(
-        self, new_provider_config, clean_registry
-    ):
+    def test_apply_new_provider_to_registry(self, new_provider_config, clean_registry):
         clear_cache()
         configs = load_config_file(new_provider_config)
         applied = apply_to_registry(configs)
@@ -259,9 +260,7 @@ class TestApplyToRegistry:
         assert "my-llm" in PROVIDER_REGISTRY
         assert "my-llm" in get_provider_config("my-llm").name
 
-    def test_apply_does_not_remove_existing_providers(
-        self, yaml_override_config, clean_registry
-    ):
+    def test_apply_does_not_remove_existing_providers(self, yaml_override_config, clean_registry):
         clear_cache()
         configs = load_config_file(yaml_override_config)
         apply_to_registry(configs)
@@ -274,6 +273,7 @@ class TestApplyToRegistry:
 # ---------------------------------------------------------------------------
 # load_config (auto-discovery + caching)
 # ---------------------------------------------------------------------------
+
 
 class TestLoadConfigAutoDiscovery:
     def test_no_config_file_returns_empty(self, monkeypatch, clean_registry):
@@ -325,21 +325,23 @@ class TestLoadConfigAutoDiscovery:
 # find_config_file
 # ---------------------------------------------------------------------------
 
+
 class TestFindConfigFile:
     def test_returns_none_when_no_file(self, monkeypatch, clean_registry):
         monkeypatch.delenv("UAI_CONFIG_PATH", raising=False)
         clear_cache()
 
         # Patch all possible locations to not exist
-        original_expanduser = Path.expanduser
 
         def mock_expanduser(path_str):
             # Make home-relative paths not resolve
             return Path(str(path_str).replace("~", "/nonexistent_home"))
 
-        with patch.object(Path, "expanduser", mock_expanduser):
-            with patch.object(Path, "exists", lambda self: False):
-                result = find_config_file()
+        with (
+            patch.object(Path, "expanduser", mock_expanduser),
+            patch.object(Path, "exists", lambda self: False),
+        ):
+            result = find_config_file()
         assert result is None
 
     def test_env_path_takes_priority(self, tmp_path, monkeypatch, clean_registry):
@@ -380,6 +382,7 @@ class TestFindConfigFile:
 # Error handling
 # ---------------------------------------------------------------------------
 
+
 class TestConfigErrors:
     def test_invalid_yaml_raises_config_error(self, invalid_yaml_config):
         clear_cache()
@@ -412,7 +415,7 @@ class TestConfigErrors:
     def test_provider_config_not_a_dict_raises(self, tmp_path):
         clear_cache()
         path = tmp_path / "providers.yaml"
-        path.write_text("providers:\n  deepseek: \"not a dict\"\n")
+        path.write_text('providers:\n  deepseek: "not a dict"\n')
         with pytest.raises(ConfigError, match="must be a mapping"):
             load_config_file(path)
 
@@ -434,9 +437,11 @@ providers:
         clear_cache()
         path = tmp_path / "providers.yaml"
         path.write_text("providers: {}\n")
-        with patch("uai.registry.loader._HAS_YAML", False):
-            with pytest.raises(ConfigError, match="PyYAML is required"):
-                load_config_file(path)
+        with (
+            patch("uai.registry.loader._HAS_YAML", False),
+            pytest.raises(ConfigError, match="PyYAML is required"),
+        ):
+            load_config_file(path)
 
     def test_unsupported_config_format(self, tmp_path):
         clear_cache()
@@ -449,6 +454,7 @@ providers:
 # ---------------------------------------------------------------------------
 # Merge edge cases
 # ---------------------------------------------------------------------------
+
 
 class TestMergeEdgeCases:
     def test_partial_override_keeps_hardcoded_models(self, tmp_path, clean_registry):
@@ -573,9 +579,11 @@ providers:
 # ConfigError is a UAIError
 # ---------------------------------------------------------------------------
 
+
 class TestConfigErrorInheritance:
     def test_is_uai_error(self):
         from uai.exceptions import UAIError
+
         assert issubclass(ConfigError, UAIError)
 
     def test_message_preserved(self):
