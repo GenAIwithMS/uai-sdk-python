@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any
 
 from uai.exceptions import ConfigError
 
@@ -30,7 +30,7 @@ from .schema import ProviderConfig
 # ---------------------------------------------------------------------------
 
 try:
-    import yaml
+    import yaml  # type: ignore[import-untyped]
 
     _HAS_YAML: bool = True
 except ImportError:  # pragma: no cover
@@ -41,7 +41,7 @@ except ImportError:  # pragma: no cover
 # Module-level cache
 # ---------------------------------------------------------------------------
 
-_config_cache: Optional[Dict[str, ProviderConfig]] = None
+_config_cache: dict[str, ProviderConfig] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +70,7 @@ _JSON_SUFFIXES: tuple[str, ...] = (".json",)
 # ---------------------------------------------------------------------------
 
 
-def find_config_file() -> Optional[Path]:
+def find_config_file() -> Path | None:
     """
     Locate the user configuration file.
 
@@ -87,8 +87,7 @@ def find_config_file() -> Optional[Path]:
         path = Path(env_path).expanduser().resolve()
         if not path.exists():
             raise ConfigError(
-                f"UAI_CONFIG_PATH is set to '{env_path}' "
-                f"but the file does not exist: {path}"
+                f"UAI_CONFIG_PATH is set to '{env_path}' but the file does not exist: {path}"
             )
         if path.suffix.lower() not in _YAML_SUFFIXES + _JSON_SUFFIXES:
             raise ConfigError(
@@ -110,7 +109,7 @@ def find_config_file() -> Optional[Path]:
 # ---------------------------------------------------------------------------
 
 
-def _load_yaml_file(path: Path) -> Dict[str, Any]:
+def _load_yaml_file(path: Path) -> dict[str, Any]:
     """Load a YAML file and return its parsed contents as a dict."""
     if not _HAS_YAML:
         raise ConfigError(
@@ -123,26 +122,23 @@ def _load_yaml_file(path: Path) -> Dict[str, Any]:
             data = yaml.safe_load(fh)
     except yaml.YAMLError as exc:
         snippet = _format_yaml_error(exc, path)
-        raise ConfigError(
-            f"YAML parsing error in {path}:\n{snippet}"
-        ) from exc
+        raise ConfigError(f"YAML parsing error in {path}:\n{snippet}") from exc
     return data or {}
 
 
-def _load_json_file(path: Path) -> Dict[str, Any]:
+def _load_json_file(path: Path) -> dict[str, Any]:
     """Load a JSON file and return its parsed contents as a dict."""
     try:
         with path.open("r", encoding="utf-8") as fh:
             data = json.load(fh)
     except json.JSONDecodeError as exc:
         raise ConfigError(
-            f"JSON parsing error in {path} at line {exc.lineno}, "
-            f"column {exc.colno}: {exc.msg}"
+            f"JSON parsing error in {path} at line {exc.lineno}, column {exc.colno}: {exc.msg}"
         ) from exc
     return data or {}
 
 
-def _load_raw_config(path: Path) -> Dict[str, Any]:
+def _load_raw_config(path: Path) -> dict[str, Any]:
     """Dispatch to the correct loader based on file extension."""
     suffix = path.suffix.lower()
 
@@ -159,20 +155,18 @@ def _load_raw_config(path: Path) -> Dict[str, Any]:
 
 def _format_yaml_error(exc: yaml.YAMLError, path: Path) -> str:
     """Return a human-readable snippet for a YAML parsing error."""
-    if hasattr(exc, "problem_mark"):
-        mark = exc.problem_mark
-        lines = str(path).splitlines()
-        line_no = mark.line + 1  # 0-based -> 1-based
-        if 0 < line_no <= len(lines):
-            snippet = lines[line_no - 1] if lines else "?"
-        else:
-            snippet = "<unknown>"
-        return (
-            f"  line {mark.line + 1}, column {mark.column + 1}\n"
-            f"  {snippet}\n"
-            f"  {' ' * mark.column}^ {exc.problem}"
-        )
-    return str(exc)
+    mark = getattr(exc, "problem_mark", None)
+    if mark is None:
+        return str(exc)
+    problem = getattr(exc, "problem", str(exc))
+    lines = str(path).splitlines()
+    line_no = mark.line + 1  # 0-based -> 1-based
+    snippet = lines[line_no - 1] if lines else "?" if 0 < line_no <= len(lines) else "<unknown>"
+    return (
+        f"  line {mark.line + 1}, column {mark.column + 1}\n"
+        f"  {snippet}\n"
+        f"  {' ' * mark.column}^ {problem}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +174,7 @@ def _format_yaml_error(exc: yaml.YAMLError, path: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _parse_providers_section(raw: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+def _parse_providers_section(raw: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Extract and validate the ``providers`` key from raw config dict."""
     if "providers" not in raw:
         raise ConfigError(
@@ -190,14 +184,12 @@ def _parse_providers_section(raw: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
 
     providers = raw["providers"]
     if not isinstance(providers, dict):
-        raise ConfigError(
-            f"'providers' must be a mapping (dict), got {type(providers).__name__}."
-        )
+        raise ConfigError(f"'providers' must be a mapping (dict), got {type(providers).__name__}.")
 
     return providers
 
 
-def _merge_with_defaults(name: str, config_dict: Dict[str, Any]) -> ProviderConfig:
+def _merge_with_defaults(name: str, config_dict: dict[str, Any]) -> ProviderConfig:
     """
     Merge a user-supplied config dict with the hardcoded provider.
 
@@ -226,7 +218,7 @@ def _merge_with_defaults(name: str, config_dict: Dict[str, Any]) -> ProviderConf
     return ProviderConfig(**merged)
 
 
-def _deep_merge_dicts(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+def _deep_merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """
     Recursively merge *override* into *base*.
 
@@ -235,11 +227,7 @@ def _deep_merge_dicts(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[st
     """
     result: dict[str, Any] = base.copy()
     for key, value in override.items():
-        if (
-            key in result
-            and isinstance(result[key], dict)
-            and isinstance(value, dict)
-        ):
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
             result[key] = _deep_merge_dicts(result[key], value)
         else:
             result[key] = value
@@ -251,7 +239,7 @@ def _deep_merge_dicts(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[st
 # ---------------------------------------------------------------------------
 
 
-def load_config_file(path: Union[str, Path]) -> Dict[str, ProviderConfig]:
+def load_config_file(path: str | Path) -> dict[str, ProviderConfig]:
     """
     Load and validate provider configs from a single file.
 
@@ -269,7 +257,7 @@ def load_config_file(path: Union[str, Path]) -> Dict[str, ProviderConfig]:
     raw = _load_raw_config(file_path)
     providers_raw = _parse_providers_section(raw)
 
-    result: Dict[str, ProviderConfig] = {}
+    result: dict[str, ProviderConfig] = {}
     for name, config_dict in providers_raw.items():
         if not isinstance(config_dict, dict):
             raise ConfigError(
@@ -281,15 +269,13 @@ def load_config_file(path: Union[str, Path]) -> Dict[str, ProviderConfig]:
         except Exception as exc:
             # Re-raise Pydantic ValidationError with context.
             if not isinstance(exc, ConfigError):
-                raise ConfigError(
-                    f"Validation failed for provider '{name}': {exc}"
-                ) from exc
+                raise ConfigError(f"Validation failed for provider '{name}': {exc}") from exc
             raise
 
     return result
 
 
-def load_config(path: Optional[Union[str, Path]] = None) -> Dict[str, ProviderConfig]:
+def load_config(path: str | Path | None = None) -> dict[str, ProviderConfig]:
     """
     Discover and load the config file, with caching.
 
@@ -308,16 +294,13 @@ def load_config(path: Optional[Union[str, Path]] = None) -> Dict[str, ProviderCo
         _config_cache = load_config_file(path)
     else:
         file_path = find_config_file()
-        if file_path is None:
-            # No config file on disk — rely entirely on hardcoded registry.
-            _config_cache = {}
-        else:
-            _config_cache = load_config_file(file_path)
+        # No config file on disk — rely entirely on hardcoded registry.
+        _config_cache = {} if file_path is None else load_config_file(file_path)
 
     return _config_cache
 
 
-def get_config() -> Dict[str, ProviderConfig]:
+def get_config() -> dict[str, ProviderConfig]:
     """Return the cached config, auto-loading if necessary."""
     return load_config()
 
@@ -329,8 +312,8 @@ def clear_cache() -> None:
 
 
 def apply_to_registry(
-    configs: Dict[str, ProviderConfig],
-) -> List[str]:
+    configs: dict[str, ProviderConfig],
+) -> list[str]:
     """
     Register (or override) providers in the global :data:`PROVIDER_REGISTRY`.
 

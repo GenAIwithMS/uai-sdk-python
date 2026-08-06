@@ -53,9 +53,6 @@ jobs:
       - name: Run MyPy type checker
         run: poetry run mypy src --ignore-missing-imports
 
-      - name: Run Pytest lint rules
-        run: poetry run pytest --ruff --mypy
-
   test:
     name: Test (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -94,9 +91,11 @@ jobs:
         run: poetry run pytest tests/unit -v --cov=uai --cov-report=xml --cov-report=term
 
       - name: Run integration tests
+        if: ${{ hashFiles('tests/integration/**/test_*.py') != '' }}
         run: poetry run pytest tests/integration -v --tb=short
 
       - name: Run performance regression tests
+        if: ${{ hashFiles('tests/performance/**/test_*.py') != '' }}
         run: poetry run pytest tests/performance -v --benchmark-only --benchmark-disable
 
       - name: Upload coverage to Codecov

@@ -32,7 +32,7 @@ from __future__ import annotations
 import logging
 import os
 import re
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
+from typing import Any
 
 from .providers import PROVIDER_REGISTRY
 from .schema import AuthType, ProviderCapabilities, ProviderConfig
@@ -44,14 +44,14 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 # Mapping: env-suffix -> (config-field-name, type-converter)
-_NUMERIC_FIELD_MAP: Dict[str, Tuple[str, Type]] = {
+_NUMERIC_FIELD_MAP: dict[str, tuple[str, type]] = {
     "TIMEOUT": ("timeout", float),
     "MAX_RETRIES": ("max_retries", int),
     "RATE_LIMIT_RPM": ("rate_limit_rpm", int),
     "RATE_LIMIT_TPM": ("rate_limit_tpm", int),
 }
 
-_STRING_FIELD_MAP: Dict[str, Tuple[str, Type]] = {
+_STRING_FIELD_MAP: dict[str, tuple[str, type]] = {
     "BASE_URL": ("base_url", str),
     "API_VERSION": ("api_version", str),
     "DOCUMENTATION_URL": ("documentation_url", str),
@@ -59,7 +59,7 @@ _STRING_FIELD_MAP: Dict[str, Tuple[str, Type]] = {
 }
 
 # Valid capability field names that can be targeted by feature flags.
-_CAPABILITY_FIELDS: List[str] = list(ProviderCapabilities.model_fields.keys())
+_CAPABILITY_FIELDS: list[str] = list(ProviderCapabilities.model_fields.keys())
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +87,7 @@ def _parse_bool(value: str) -> bool:
     raise ValueError(f"Cannot parse boolean from '{value}'")
 
 
-def _safe_int(raw: str, field_name: str, provider_name: str) -> Optional[int]:
+def _safe_int(raw: str, field_name: str, provider_name: str) -> int | None:
     try:
         return int(raw.strip())
     except (ValueError, TypeError):
@@ -95,7 +95,7 @@ def _safe_int(raw: str, field_name: str, provider_name: str) -> Optional[int]:
         return None
 
 
-def _safe_float(raw: str, field_name: str, provider_name: str) -> Optional[float]:
+def _safe_float(raw: str, field_name: str, provider_name: str) -> float | None:
     try:
         return float(raw.strip())
     except (ValueError, TypeError):
@@ -117,7 +117,7 @@ def _warn_invalid(field: str, value: str, provider: str, expected: str) -> None:
     )
 
 
-def _parse_auth_type(raw: str, provider_name: str) -> Optional[AuthType]:
+def _parse_auth_type(raw: str, provider_name: str) -> AuthType | None:
     cleaned = raw.strip().upper()
     try:
         return AuthType[cleaned]
@@ -132,7 +132,7 @@ def _parse_auth_type(raw: str, provider_name: str) -> Optional[AuthType]:
 # ---------------------------------------------------------------------------
 
 
-def get_env_overrides(provider_name: str) -> Dict[str, Any]:
+def get_env_overrides(provider_name: str) -> dict[str, Any]:
     """
     Scan the environment and return all overrides for a single provider.
 
@@ -141,7 +141,7 @@ def get_env_overrides(provider_name: str) -> Dict[str, Any]:
              ``ProviderConfig.model_copy(update=...)``.
     """
     upper = _upper_name(provider_name)
-    overrides: Dict[str, Any] = {}
+    overrides: dict[str, Any] = {}
 
     # --- Numeric fields ------------------------------------------------
     for env_suffix, (field, _) in _NUMERIC_FIELD_MAP.items():
@@ -172,9 +172,7 @@ def get_env_overrides(provider_name: str) -> Dict[str, Any]:
 
     # --- Feature-flag booleans ----------------------------------------
     # Format: UAI_PROVIDER_{NAME}_DISABLE_{CAPABILITY}
-    feature_pattern = re.compile(
-        rf"^UAI_PROVIDER_{upper}_DISABLE_([A-Z_]+)$"
-    )
+    feature_pattern = re.compile(rf"^UAI_PROVIDER_{upper}_DISABLE_([A-Z_]+)$")
     for env_var, raw_val in os.environ.items():
         match = feature_pattern.match(env_var)
         if not match:
@@ -191,9 +189,7 @@ def get_env_overrides(provider_name: str) -> Dict[str, Any]:
         try:
             flag = _parse_bool(raw_val)
         except ValueError:
-            _warn_invalid(
-                f"DISABLE_{match.group(1)}", raw_val, provider_name, "boolean"
-            )
+            _warn_invalid(f"DISABLE_{match.group(1)}", raw_val, provider_name, "boolean")
             continue
         if flag:
             overrides.setdefault("_disable_capabilities", []).append(capability)
@@ -213,22 +209,21 @@ def apply_env_overrides_to_config(
     overrides = get_env_overrides(config.name)
 
     # Extract model-level capability overrides (feature flags).
-    disable_caps: List[str] = overrides.pop("_disable_capabilities", [])
+    disable_caps: list[str] = overrides.pop("_disable_capabilities", [])
     if not overrides and not disable_caps:
         return config
 
     if disable_caps:
         # Rebuild models dict with overridden capabilities
-        new_models: Dict[str, Any] = {}
+        new_models: dict[str, Any] = {}
         for model_id, model in config.models.items():
             # Rebuild capabilities with specific fields set to False
             cap_dict = model.capabilities.model_dump()
             for cap in disable_caps:
                 cap_dict[cap] = False
             from .schema import ProviderCapabilities as PC
-            new_models[model_id] = model.model_copy(
-                update={"capabilities": PC(**cap_dict)}
-            )
+
+            new_models[model_id] = model.model_copy(update={"capabilities": PC(**cap_dict)})
         overrides["models"] = new_models
 
     if overrides:
@@ -237,8 +232,8 @@ def apply_env_overrides_to_config(
 
 
 def apply_env_overrides(
-    configs: Optional[Dict[str, ProviderConfig]] = None,
-) -> Dict[str, ProviderConfig]:
+    configs: dict[str, ProviderConfig] | None = None,
+) -> dict[str, ProviderConfig]:
     """
     Apply environment-variable overrides across all provider configs.
 
@@ -249,7 +244,7 @@ def apply_env_overrides(
     if configs is None:
         configs = dict(PROVIDER_REGISTRY)
 
-    result: Dict[str, ProviderConfig] = {}
+    result: dict[str, ProviderConfig] = {}
     for name, config in configs.items():
         result[name] = apply_env_overrides_to_config(config)
     return result

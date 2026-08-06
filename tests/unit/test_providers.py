@@ -8,26 +8,25 @@ capability-gating utility works as expected.
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
 
 from uai.exceptions import FeatureNotSupportedError
 from uai.registry import (
-    PROVIDER_REGISTRY,
     MVP_PROVIDERS,
-    list_providers,
-    list_mvp_providers,
-    get_provider_config,
-    get_model_info,
-    get_default_model,
-    register_provider,
+    PROVIDER_REGISTRY,
     check_capability,
+    get_default_model,
+    get_model_info,
+    get_provider_config,
+    list_mvp_providers,
+    list_providers,
+    register_provider,
 )
 from uai.registry.schema import AuthType, ProviderCapabilities, ProviderConfig
-
 
 # ---------------------------------------------------------------------------
 # Registry contents
 # ---------------------------------------------------------------------------
+
 
 class TestRegistryContents:
     """Validate the hardcoded provider registry at import time."""
@@ -40,37 +39,87 @@ class TestRegistryContents:
         assert set(MVP_PROVIDERS) <= set(PROVIDER_REGISTRY.keys())
         assert set(MVP_PROVIDERS) == {"deepseek", "qwen"}
 
-    @pytest.mark.parametrize("provider_name", [
-        "deepseek", "qwen", "glm", "kimi", "stepfun", "doubao", "minimax", "hunyuan",
-    ])
+    @pytest.mark.parametrize(
+        "provider_name",
+        [
+            "deepseek",
+            "qwen",
+            "glm",
+            "kimi",
+            "stepfun",
+            "doubao",
+            "minimax",
+            "hunyuan",
+        ],
+    )
     def test_all_providers_use_bearer_token(self, provider_name):
         config = PROVIDER_REGISTRY[provider_name]
         assert config.auth_type == AuthType.BEARER_TOKEN
 
-    @pytest.mark.parametrize("provider_name", [
-        "deepseek", "qwen", "glm", "kimi", "stepfun", "doubao", "minimax", "hunyuan",
-    ])
+    @pytest.mark.parametrize(
+        "provider_name",
+        [
+            "deepseek",
+            "qwen",
+            "glm",
+            "kimi",
+            "stepfun",
+            "doubao",
+            "minimax",
+            "hunyuan",
+        ],
+    )
     def test_all_providers_have_valid_base_url(self, provider_name):
         config = PROVIDER_REGISTRY[provider_name]
         assert config.base_url.startswith("https://")
 
-    @pytest.mark.parametrize("provider_name", [
-        "deepseek", "qwen", "glm", "kimi", "stepfun", "doubao", "minimax", "hunyuan",
-    ])
+    @pytest.mark.parametrize(
+        "provider_name",
+        [
+            "deepseek",
+            "qwen",
+            "glm",
+            "kimi",
+            "stepfun",
+            "doubao",
+            "minimax",
+            "hunyuan",
+        ],
+    )
     def test_all_providers_have_models(self, provider_name):
         config = PROVIDER_REGISTRY[provider_name]
         assert len(config.models) > 0
 
-    @pytest.mark.parametrize("provider_name", [
-        "deepseek", "qwen", "glm", "kimi", "stepfun", "doubao", "minimax", "hunyuan",
-    ])
+    @pytest.mark.parametrize(
+        "provider_name",
+        [
+            "deepseek",
+            "qwen",
+            "glm",
+            "kimi",
+            "stepfun",
+            "doubao",
+            "minimax",
+            "hunyuan",
+        ],
+    )
     def test_default_model_exists(self, provider_name):
         config = PROVIDER_REGISTRY[provider_name]
         assert config.default_model in config.models
 
-    @pytest.mark.parametrize("provider_name", [
-        "deepseek", "qwen", "glm", "kimi", "stepfun", "doubao", "minimax", "hunyuan",
-    ])
+    @pytest.mark.parametrize(
+        "provider_name",
+        [
+            "deepseek",
+            "qwen",
+            "glm",
+            "kimi",
+            "stepfun",
+            "doubao",
+            "minimax",
+            "hunyuan",
+        ],
+    )
     def test_all_models_have_positive_context_window(self, provider_name):
         config = PROVIDER_REGISTRY[provider_name]
         for model in config.models.values():
@@ -81,6 +130,7 @@ class TestRegistryContents:
 # ---------------------------------------------------------------------------
 # list_providers
 # ---------------------------------------------------------------------------
+
 
 class TestListProviders:
     def test_returns_list(self):
@@ -103,6 +153,7 @@ class TestListProviders:
 # list_mvp_providers
 # ---------------------------------------------------------------------------
 
+
 class TestListMvpProviders:
     def test_returns_only_mvp(self):
         result = list_mvp_providers()
@@ -112,6 +163,7 @@ class TestListMvpProviders:
 # ---------------------------------------------------------------------------
 # get_provider_config
 # ---------------------------------------------------------------------------
+
 
 class TestGetProviderConfig:
     def test_get_deepseek(self):
@@ -142,6 +194,7 @@ class TestGetProviderConfig:
 # ---------------------------------------------------------------------------
 # get_model_info
 # ---------------------------------------------------------------------------
+
 
 class TestGetModelInfo:
     def test_get_deepseek_chat_model(self):
@@ -177,6 +230,7 @@ class TestGetModelInfo:
 # get_default_model
 # ---------------------------------------------------------------------------
 
+
 class TestGetDefaultModel:
     def test_deepseek_default(self):
         assert get_default_model("deepseek") == "deepseek-chat"
@@ -195,6 +249,7 @@ class TestGetDefaultModel:
 # ---------------------------------------------------------------------------
 # check_capability
 # ---------------------------------------------------------------------------
+
 
 class TestCheckCapability:
     def test_supported_capability_passes(self):
@@ -240,9 +295,11 @@ class TestCheckCapability:
 # register_provider
 # ---------------------------------------------------------------------------
 
+
 class TestRegisterProvider:
     def test_register_new_provider(self):
-        from uai.registry.schema import ProviderModel, ProviderCapabilities
+        from uai.registry.schema import ProviderModel
+
         custom = ProviderConfig(
             name="custom-test",
             display_name="Custom Test",
@@ -267,9 +324,9 @@ class TestRegisterProvider:
         # Cleanup
         PROVIDER_REGISTRY.pop("custom-test", None)
         from uai.registry.providers import PROVIDER_ORDER
+
         if "custom-test" in PROVIDER_ORDER:
             PROVIDER_ORDER.remove("custom-test")
-
 
     def test_register_existing_provider_without_override_raises(self):
         config = get_provider_config("deepseek")
@@ -290,32 +347,39 @@ class TestRegisterProvider:
 # Capability matrix summary tests
 # ---------------------------------------------------------------------------
 
+
 class TestCapabilityMatrix:
     """Verify the capability matrix matches the SRS / Implementation Plan."""
 
-    @pytest.mark.parametrize("provider_name,capabilities", [
-        ("deepseek", {"chat", "streaming", "tools", "reasoning"}),
-        ("qwen", {"chat", "streaming", "tools", "vision", "embeddings", "rerank"}),
-        ("glm", {"chat", "streaming", "tools", "embeddings", "rerank"}),
-        ("kimi", {"chat", "streaming", "tools"}),
-        ("stepfun", {"chat", "streaming", "tools", "vision", "embeddings"}),
-        ("doubao", {"chat", "streaming", "tools", "vision", "embeddings"}),
-        ("minimax", {"chat", "streaming", "tools", "embeddings", "tts", "transcription"}),
-        ("hunyuan", {"chat", "streaming", "tools", "vision", "embeddings"}),
-    ])
+    @pytest.mark.parametrize(
+        "provider_name,capabilities",
+        [
+            ("deepseek", {"chat", "streaming", "tools", "reasoning"}),
+            ("qwen", {"chat", "streaming", "tools", "vision", "embeddings", "rerank"}),
+            ("glm", {"chat", "streaming", "tools", "embeddings", "rerank"}),
+            ("kimi", {"chat", "streaming", "tools"}),
+            ("stepfun", {"chat", "streaming", "tools", "vision", "embeddings"}),
+            ("doubao", {"chat", "streaming", "tools", "vision", "embeddings"}),
+            ("minimax", {"chat", "streaming", "tools", "embeddings", "tts", "transcription"}),
+            ("hunyuan", {"chat", "streaming", "tools", "vision", "embeddings"}),
+        ],
+    )
     def test_aggregate_capabilities(self, provider_name, capabilities):
         config = get_provider_config(provider_name)
         agg = config.capabilities
         for cap in capabilities:
             assert getattr(agg, cap) is True, f"{provider_name} should support {cap}"
 
-    @pytest.mark.parametrize("provider_name,disabled_cap", [
-        ("deepseek", "vision"),
-        ("glm", "vision"),
-        ("kimi", "vision"),
-        ("doubao", "tts"),
-        ("hunyuan", "tts"),
-    ])
+    @pytest.mark.parametrize(
+        "provider_name,disabled_cap",
+        [
+            ("deepseek", "vision"),
+            ("glm", "vision"),
+            ("kimi", "vision"),
+            ("doubao", "tts"),
+            ("hunyuan", "tts"),
+        ],
+    )
     def test_aggregate_capabilities_disabled(self, provider_name, disabled_cap):
         config = get_provider_config(provider_name)
         agg = config.capabilities
