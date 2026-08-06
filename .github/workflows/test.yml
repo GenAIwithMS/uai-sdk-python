@@ -91,9 +91,11 @@ jobs:
         run: poetry run pytest tests/unit -v --cov=uai --cov-report=xml --cov-report=term
 
       - name: Run integration tests
+        if: ${{ hashFiles('tests/integration/**/test_*.py') != '' }}
         run: poetry run pytest tests/integration -v --tb=short
 
       - name: Run performance regression tests
+        if: ${{ hashFiles('tests/performance/**/test_*.py') != '' }}
         run: poetry run pytest tests/performance -v --benchmark-only --benchmark-disable
 
       - name: Upload coverage to Codecov
