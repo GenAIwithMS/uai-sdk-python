@@ -155,20 +155,18 @@ def _load_raw_config(path: Path) -> dict[str, Any]:
 
 def _format_yaml_error(exc: yaml.YAMLError, path: Path) -> str:
     """Return a human-readable snippet for a YAML parsing error."""
-    if hasattr(exc, "problem_mark"):
-        mark = exc.problem_mark
-        lines = str(path).splitlines()
-        line_no = mark.line + 1  # 0-based -> 1-based
-        if 0 < line_no <= len(lines):
-            snippet = lines[line_no - 1] if lines else "?"
-        else:
-            snippet = "<unknown>"
-        return (
-            f"  line {mark.line + 1}, column {mark.column + 1}\n"
-            f"  {snippet}\n"
-            f"  {' ' * mark.column}^ {exc.problem}"
-        )
-    return str(exc)
+    mark = getattr(exc, "problem_mark", None)
+    if mark is None:
+        return str(exc)
+    problem = getattr(exc, "problem", str(exc))
+    lines = str(path).splitlines()
+    line_no = mark.line + 1  # 0-based -> 1-based
+    snippet = lines[line_no - 1] if lines else "?" if 0 < line_no <= len(lines) else "<unknown>"
+    return (
+        f"  line {mark.line + 1}, column {mark.column + 1}\n"
+        f"  {snippet}\n"
+        f"  {' ' * mark.column}^ {problem}"
+    )
 
 
 # ---------------------------------------------------------------------------
