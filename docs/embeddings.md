@@ -4,7 +4,7 @@
 
 ## Overview
 
-Returns vector embeddings for text inputs. Currently supported by: Qwen, GLM, MiniMax.
+Returns vector embeddings for text inputs. Currently supported by: DeepSeek, Qwen, GLM, StepFun, Doubao, MiniMax, Hunyuan.
 
 ## Usage
 

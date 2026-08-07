@@ -15,9 +15,10 @@ Universal AI SDK (client library)
      ▼
 Provider Adapters (language-specific clients)
      │
-  ┌──────┬────────┬─────────┐
+  ┌──────┬────────┬─────────┬─────────┐
   ▼      ▼        ▼         ▼
-DeepSeek  Qwen   GLM   Other Providers...
+DeepSeek  Qwen   GLM   Other Providers
+(Kimi, StepFun, Doubao, MiniMax, Hunyuan)
 ```
 
 ## Key Concepts
@@ -33,7 +34,7 @@ Each provider has an adapter class implementing:
 - `format_request()` — map UnifiedRequest → provider schema
 - `parse_response()` — map provider response → UnifiedResponse
 - `handle_streaming()`
-- `translate_errors()`
+- `translate_error()`
 - `capabilities()` — returns a boolean capability matrix
 
 ### Capability Matrix

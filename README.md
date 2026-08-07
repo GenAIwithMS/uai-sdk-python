@@ -72,7 +72,7 @@ print(result.parsed)
 | Kimi       | ✅   | ✅        | ✅    | ❌     | ❌         | ❌     | ❌    |
 | StepFun    | ✅   | ✅        | ✅    | ✅     | ✅         | ❌     | ❌    |
 | Doubao     | ✅   | ✅        | ✅    | ✅     | ✅         | ❌     | ❌    |
-| MiniMax    | ✅   | ✅        | ✅    | ✅     | ✅         | ❌     | ✅    |
+| MiniMax    | ✅   | ✅        | ✅    | ✅     | ✅         | ❌     | ❌    |
 | Hunyuan    | ✅   | ✅        | ✅    | ✅     | ✅         | ❌     | ❌    |
 
 ---

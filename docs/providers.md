@@ -16,7 +16,7 @@ mis-configuration fails fast rather than at runtime.
 | Kimi       |  ✅  |    ✅     |  ✅  |   ❌   |     ❌     |   ❌   |   ❌  |
 | StepFun    |  ✅  |    ✅     |  ✅  |   ✅   |     ✅     |   ❌   |   ❌  |
 | Doubao     |  ✅  |    ✅     |  ✅  |   ✅   |     ✅     |   ❌   |   ❌  |
-| MiniMax    |  ✅  |    ✅     |  ✅  |   ✅   |     ✅     |   ❌   |   ✅  |
+| MiniMax    |  ✅  |    ✅     |  ✅  |   ✅   |     ✅     |   ❌   |   ❌  |
 | Hunyuan    |  ✅  |    ✅     |  ✅  |   ✅   |     ✅     |   ❌   |   ❌  |
 
 ## Provider Notes
@@ -78,7 +78,8 @@ mis-configuration fails fast rather than at runtime.
 - **Endpoint:** `https://api.minimax.chat/v1`
 - **Auth:** Bearer token — `MINIMAX_API_KEY`
 - **Models:** `minimax-m2.5` (default), `minimax-embedding`
-- **Special features:** Vision, Audio, TTS, Transcription (`minimax-m2.5`)
+- **Special features:** Vision (`minimax-m2.5`)
+- **Unsupported:** Audio, TTS, Transcription (not yet implemented)
 - **Rate limits:** 200 RPM / 20 000 TPM
 
 ### Hunyuan (Tencent Cloud)

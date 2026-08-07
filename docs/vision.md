@@ -4,7 +4,7 @@
 
 ## Overview
 
-Multi-modal vision operations: image captioning, OCR, object detection. Currently supported by: Qwen, StepFun, Doubao, MiniMax.
+Multi-modal vision operations: image captioning, OCR, object detection. Currently supported by: Qwen, StepFun, Doubao, MiniMax, Hunyuan.
 
 ## Usage
 
