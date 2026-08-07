@@ -5,8 +5,7 @@ A modular, extensible AI infrastructure layer that abstracts multiple LLM
 providers behind a single, stable API with an opt-in middleware architecture.
 """
 
-import contextlib
-
+from uai.client import UniversalAI
 from uai.exceptions import (
     FeatureNotSupportedError,
     ResponseParsingError,
@@ -54,6 +53,3 @@ __all__ = [
     "UnifiedResponse",
     "UsageMetrics",
 ]
-
-with contextlib.suppress(ImportError):
-    from uai.client import UniversalAI
