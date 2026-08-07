@@ -330,103 +330,103 @@ class UniversalAI:
         finish_reason = None
         seen_ids = set()
         
-        with httpx.stream(
-            "POST",
-            f"{config.base_url}/chat/completions",
-            headers=headers,
-            json=body,
-            timeout=config.timeout,
-        ) as response:
-            if response.status_code != 200:
-                raise self._handle_http_error(
-                    httpx.HTTPStatusError("Error", request=response.request, response=response),
-                    provider_lower
-                )
-            
-            for line in response.iter_lines():
-                if not line:
-                    continue
+        try:
+            with httpx.stream(
+                "POST",
+                f"{config.base_url}/chat/completions",
+                headers=headers,
+                json=body,
+                timeout=config.timeout,
+            ) as response:
+                if response.status_code != 200:
+                    raise self._handle_http_error(
+                        httpx.HTTPStatusError("Error", request=response.request, response=response),
+                        provider_lower
+                    )
                 
-                line_str = line.decode('utf-8') if isinstance(line, bytes) else line
-                
-                if line_str.startswith('data: '):
-                    line_str = line_str[6:]
-                
-                if line_str.strip() in ('[DONE]', 'data: [DONE]'):
-                    yield StreamChunk(is_final=True)
-                    break
-                
-                if not line_str.strip():
-                    continue
-                
-                try:
-                    chunk_data = json.loads(line_str)
-                except json.JSONDecodeError:
-                    continue
-                
-                if not chunk_data.get('choices'):
-                    continue
-                
-                choice = chunk_data['choices'][0]
-                delta = choice.get('delta', {})
-                content = delta.get('content', '')
-                
-                # Record TTFT on first content chunk
-                if first_chunk and content:
-                    ttft_ms = (time.time() - start_time) * 1000
-                    first_chunk = False
-                else:
-                    ttft_ms = None
-                
-                # Extract finish reason
-                if choice.get('finish_reason'):
-                    finish_reason = choice['finish_reason']
-                
-                # Extract tool calls
-                tool_calls = None
-                if delta.get('tool_calls'):
-                    from uai.models import FunctionCall, ToolCall
-                    tool_calls = [
-                        ToolCall(
-                            id=tc.get('id', ''),
-                            type='function',
-                            function=FunctionCall(
-                                name=tc.get('function', {}).get('name', ''),
-                                arguments=tc.get('function', {}).get('arguments', '{}'),
-                            ),
-                        )
-                        for tc in delta['tool_calls']
-                        if tc.get('id')
-                    ]
-                
-                # Get ID
-                chunk_id = chunk_data.get('id')
-                actual_id = chunk_id if chunk_id and chunk_id not in seen_ids else None
-                if chunk_id:
-                    seen_ids.add(chunk_id)
-                
-                chunk = StreamChunk(
-                    content=content if content else None,
-                    tool_calls=tool_calls,
-                    finish_reason=finish_reason,
-                    id=actual_id,
-                    model=resolved_id,
-                    provider=provider_lower,
-                    is_final=finish_reason is not None,
-                    ttft_ms=ttft_ms,
-                )
-                
-                if callback:
-                    callback(chunk)
-                
-                yield chunk
-                
-                if finish_reason:
-                    break
-                
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    
+                    line_str = line.decode('utf-8') if isinstance(line, bytes) else line
+                    
+                    if line_str.startswith('data: '):
+                        line_str = line_str[6:]
+                    
+                    if line_str.strip() in ('[DONE]', 'data: [DONE]'):
+                        yield StreamChunk(is_final=True)
+                        break
+                    
+                    if not line_str.strip():
+                        continue
+                    
+                    try:
+                        chunk_data = json.loads(line_str)
+                    except json.JSONDecodeError:
+                        continue
+                    
+                    if not chunk_data.get('choices'):
+                        continue
+                    
+                    choice = chunk_data['choices'][0]
+                    delta = choice.get('delta', {})
+                    content = delta.get('content', '')
+                    
+                    # Record TTFT on first content chunk
+                    if first_chunk and content:
+                        ttft_ms = (time.time() - start_time) * 1000
+                        first_chunk = False
+                    else:
+                        ttft_ms = None
+                    
+                    # Extract finish reason
+                    if choice.get('finish_reason'):
+                        finish_reason = choice['finish_reason']
+                    
+                    # Extract tool calls
+                    tool_calls = None
+                    if delta.get('tool_calls'):
+                        from uai.models import FunctionCall, ToolCall
+                        tool_calls = [
+                            ToolCall(
+                                id=tc.get('id', ''),
+                                type='function',
+                                function=FunctionCall(
+                                    name=tc.get('function', {}).get('name', ''),
+                                    arguments=tc.get('function', {}).get('arguments', '{}'),
+                                ),
+                            )
+                            for tc in delta['tool_calls']
+                            if tc.get('id')
+                        ]
+                    
+                    # Get ID
+                    chunk_id = chunk_data.get('id')
+                    actual_id = chunk_id if chunk_id and chunk_id not in seen_ids else None
+                    if chunk_id:
+                        seen_ids.add(chunk_id)
+                    
+                    chunk = StreamChunk(
+                        content=content if content else None,
+                        tool_calls=tool_calls,
+                        finish_reason=finish_reason,
+                        id=actual_id,
+                        model=resolved_id,
+                        provider=provider_lower,
+                        is_final=finish_reason is not None,
+                        ttft_ms=ttft_ms,
+                    )
+                    
+                    if callback:
+                        callback(chunk)
+                    
+                    yield chunk
+                    
+                    if finish_reason:
+                        break
         except httpx.RequestError as e:
             raise UAIError(f"Network error during streaming: {e}") from e
-    
+
     def _parse_chat_response(
         self,
         data: dict[str, Any],
