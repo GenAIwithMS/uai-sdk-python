@@ -16,24 +16,24 @@ from uai.models import FinishReason, UnifiedRequest, UnifiedResponse, UsageMetri
 
 class GLMAdapter(BaseProviderAdapter):
     """Adapter for GLM API."""
-    
+
     provider_name = "glm"
-    
+
     def __init__(self):
         self._api_key: str | None = None
-    
+
     def authenticate(self, credentials: dict[str, Any]) -> None:
         """Set up authentication with the GLM API."""
         self._api_key = credentials.get("api_key") or credentials.get("bearer_token")
         if not self._api_key:
             raise UAIAuthenticationError("GLM API key required")
-    
+
     def format_request(self, request: UnifiedRequest) -> dict[str, Any]:
         """Translate UnifiedRequest to GLM API format."""
         body: dict[str, Any] = {}
-        
+
         body["model"] = request.model or "glm-4.7"
-        
+
         messages = []
         for msg in request.messages:
             msg_dict: dict[str, Any] = {
@@ -45,7 +45,7 @@ class GLMAdapter(BaseProviderAdapter):
                 msg_dict["name"] = msg.name
             messages.append(msg_dict)
         body["messages"] = messages
-        
+
         if request.max_tokens is not None:
             body["max_tokens"] = request.max_tokens
         if request.temperature is not None:
@@ -54,17 +54,17 @@ class GLMAdapter(BaseProviderAdapter):
             body["top_p"] = request.top_p
         if request.stop:
             body["stop"] = request.stop if isinstance(request.stop, list) else [request.stop]
-        
+
         if request.tools:
             body["tools"] = [t.model_dump(exclude_none=True) for t in request.tools]
             if request.tool_choice:
                 body["tool_choice"] = request.tool_choice.value
-        
+
         if request.model == "glm-4.7":
             body["thinking"] = {"type": "enabled"}
-        
+
         return body
-    
+
     def parse_response(self, response: dict[str, Any], request: UnifiedRequest) -> UnifiedResponse:
         """Translate GLM API response to UnifiedResponse."""
         choices = response.get("choices", [])
@@ -74,23 +74,24 @@ class GLMAdapter(BaseProviderAdapter):
                 usage=UsageMetrics(),
                 finish_reason=FinishReason.STOP,
             )
-        
+
         choice = choices[0]
         message = choice.get("message", {})
-        
+
         content = message.get("content", "")
-        
+
         # Map finish reason
         finish_reason_raw = choice.get("finish_reason", "stop")
         try:
             finish_reason = FinishReason(finish_reason_raw)
         except ValueError:
             finish_reason = FinishReason.STOP
-        
+
         # Parse tool calls
         tool_calls = None
         if message.get("tool_calls"):
             from uai.models import FunctionCall, ToolCall
+
             tool_calls = [
                 ToolCall(
                     id=tc.get("id", ""),
@@ -103,14 +104,14 @@ class GLMAdapter(BaseProviderAdapter):
                 for tc in message["tool_calls"]
                 if tc.get("type") == "function"
             ]
-        
+
         # Usage
         usage_data = response.get("usage", {})
         usage = UsageMetrics(
             input_tokens=usage_data.get("prompt_tokens", 0),
             output_tokens=usage_data.get("completion_tokens", 0),
         )
-        
+
         return UnifiedResponse(
             id=response.get("id"),
             content=content if content else None,
@@ -119,7 +120,7 @@ class GLMAdapter(BaseProviderAdapter):
             tool_calls=tool_calls,
             raw=response,
         )
-    
+
     def translate_error(self, status_code: int, error_body: Any) -> Exception:
         """Translate GLM API errors to SDK exceptions."""
         if status_code == 401:
@@ -129,7 +130,7 @@ class GLMAdapter(BaseProviderAdapter):
         elif status_code >= 500:
             return UAINetworkError(f"GLM server error ({status_code}): {error_body}")
         return UAIError(f"GLM API error ({status_code}): {error_body}")
-    
+
     def capabilities(self) -> dict[str, bool]:
         """Return GLM's capability matrix."""
         return {

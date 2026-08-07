@@ -126,7 +126,9 @@ class UsageMetrics(BaseModel):
         default=None, ge=0, description="Tokens written to the provider's cache (if supported)."
     )
     reasoning_tokens: int | None = Field(
-        default=None, ge=0, description="Tokens used for internal reasoning (e.g. DeepSeek reasoner)."
+        default=None,
+        ge=0,
+        description="Tokens used for internal reasoning (e.g. DeepSeek reasoner).",
     )
 
     @model_validator(mode="after")
@@ -242,7 +244,9 @@ class FunctionDefinition(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1)
-    description: str | None = Field(default=None, description="Human-readable description of the function.")
+    description: str | None = Field(
+        default=None, description="Human-readable description of the function."
+    )
     parameters: dict[str, Any] = Field(
         default_factory=lambda: {"type": "object", "properties": {}},
         description="JSON Schema describing the function's parameters.",
@@ -458,10 +462,12 @@ class UnifiedRequest(BaseModel):
     @model_validator(mode="after")
     def _validate_after(self) -> UnifiedRequest:
         # tool_choice only makes sense when tools are provided
-        if self.tool_choice is not None and self.tool_choice != ToolCallMode.NONE and self.tools is None:
-            raise ValueError(
-                "tool_choice can only be 'auto' or 'required' when tools are provided"
-            )
+        if (
+            self.tool_choice is not None
+            and self.tool_choice != ToolCallMode.NONE
+            and self.tools is None
+        ):
+            raise ValueError("tool_choice can only be 'auto' or 'required' when tools are provided")
 
         # output_schema requires the model to support structured output;
         # we don't have the provider info here, so we set a flag instead.

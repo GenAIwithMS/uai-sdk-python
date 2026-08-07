@@ -152,9 +152,7 @@ class TestImageURL:
 
 class TestImageContent:
     def test_valid(self):
-        c = ImageContent(
-            image_url=ImageURL(url="data:image/png;base64,abc", detail="high")
-        )
+        c = ImageContent(image_url=ImageURL(url="data:image/png;base64,abc", detail="high"))
         assert c.type == "image_url"
         assert c.image_url.url.startswith("data:")
         assert c.image_url.detail == "high"
@@ -166,9 +164,7 @@ class TestContentBlockDiscriminatedUnion:
         assert block.type == "text"
 
     def test_image_block(self):
-        block: ContentBlock = ImageContent(
-            image_url=ImageURL(url="https://example.com/img.png")
-        )
+        block: ContentBlock = ImageContent(image_url=ImageURL(url="https://example.com/img.png"))
         assert block.type == "image_url"
 
     def test_from_dict_text(self):
@@ -676,7 +672,10 @@ class TestRoundTrip:
                     "function": {
                         "name": "get_weather",
                         "description": "Get weather for a city",
-                        "parameters": {"type": "object", "properties": {"city": {"type": "string"}}},
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"city": {"type": "string"}},
+                        },
                     },
                 }
             ],
