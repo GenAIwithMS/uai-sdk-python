@@ -1,7 +1,5 @@
 # Architecture
 
-> Stub — content to be written.
-
 ## Overview
 
 The Universal AI Provider SDK is an infrastructure layer that unifies access to multiple LLM providers behind a single API.
@@ -13,7 +11,7 @@ Application
      │
      ▼
 Universal AI SDK (client library)
-     │  (optionally plugin/middleware pipeline)
+     │  
      ▼
 Provider Adapters (language-specific clients)
      │
@@ -27,15 +25,6 @@ DeepSeek  Qwen   GLM   Other Providers...
 ### UnifiedRequest & UnifiedResponse
 
 All requests are funneled through a `UnifiedRequest` object before hitting a provider adapter. All responses are normalized into a `UnifiedResponse`. This insulates application code from provider API schema changes.
-
-### Middleware Pipeline
-
-Advanced features (caching, retries, logging, routing) are implemented as opt-in middleware. By default, only core functionality runs.
-
-```python
-client.use(RetryMiddleware(max_retries=3))
-client.use(CacheMiddleware(redis_client))
-```
 
 ### Provider Adapter Contract
 
@@ -63,3 +52,35 @@ check_capability("deepseek", "deepseek-chat", "vision")
 
 See [providers.md](providers.md) for the full matrix and [configuration.md](configuration.md)
 for how configs are layered and overridden.
+
+### UniversalAI Client
+
+The `UniversalAI` class serves as the main orchestrator:
+- Normalizes application requests into UnifiedRequest objects
+- Routes requests to the appropriate provider adapter
+- Handles streaming vs non-streaming responses
+- Enforces capability checking before provider calls
+- Manages authentication and API key distribution
+
+The client can be instantiated with provider and model preferences:
+
+```python
+from uai import UniversalAI
+
+client = UniversalAI(provider="deepseek", model="deepseek-chat")
+response = client.chat(messages=[{"role": "user", "content": "Hello"}])
+```
+
+### Integration
+
+Users interact with the SDK through the `UniversalAI.chat()` method:
+- **Chat**: Send conversational messages to providers
+- **Streaming**: Receive response chunks as they're generated
+- **Tools**: Call provider-specific functions when supported
+- **Structured Output**: Parse responses into structured data
+
+The SDK maintains provider abstraction through:
+1. Standardized `UnifiedRequest` and `UnifiedResponse` objects
+2. Consistent error translation across providers
+3. Capability enforcement based on provider model capabilities
+4. Provider adapter encapsulation of provider-specific logic
