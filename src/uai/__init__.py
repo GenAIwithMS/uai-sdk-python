@@ -16,17 +16,43 @@ from uai.exceptions import (
     UAINetworkError,
     UAIRateLimitError,
 )
+from uai.models import (
+    ChatMessage,
+    FinishReason,
+    FunctionCall,
+    FunctionDefinition,
+    Role,
+    StreamChunk,
+    ToolCall,
+    ToolCallMode,
+    ToolDefinition,
+    UnifiedRequest,
+    UnifiedResponse,
+    UsageMetrics,
+)
 
 __version__ = "0.1.0"
 __all__ = [
+    "ChatMessage",
     "FeatureNotSupportedError",
+    "FinishReason",
+    "FunctionCall",
+    "FunctionDefinition",
     "ResponseParsingError",
+    "Role",
+    "StreamChunk",
+    "ToolCall",
+    "ToolCallMode",
+    "ToolDefinition",
     "UAIAuthenticationError",
     "UAIError",
     "UAIErrorGroup",
     "UAINetworkError",
     "UAIRateLimitError",
     "UniversalAI",
+    "UnifiedRequest",
+    "UnifiedResponse",
+    "UsageMetrics",
 ]
 
 with contextlib.suppress(ImportError):
