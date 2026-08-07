@@ -56,11 +56,14 @@ print(result.parsed)
 
 - ✅ Unified API across multiple LLM providers
 - ✅ Chat, streaming, tool-calling, structured outputs
+- ✅ Embeddings (`client.embed`) and rerank (`client.rerank`) via provider adapters
+- ✅ Vision via chat content blocks (image_url) on vision-capable models
 - ✅ Modular middleware (retry, cache, logging, tracing)
 - ✅ Provider adapters with strict capability enforcement
 - ✅ OpenTelemetry metrics and tracing
 - ✅ Security-first design (no secret logging, input validation)
 - ✅ Extensible — easily add new providers via the [PDK](docs/pdk.md)
+- ⏳ Audio / TTS / transcription — **not yet implemented** (deferred)
 
 ## Supported Providers
 
@@ -83,6 +86,9 @@ print(result.parsed)
 - [Chat](docs/chat.md) — conversational completions, history management, system prompts
 - [Streaming](docs/streaming.md) — SSE handling, TTFT, chunk aggregation
 - [Tools](docs/tools.md) — function calling & MCP integration
+- [Embeddings](docs/embeddings.md) — text embedding operations via adapters
+- [Vision](docs/vision.md) — multimodal image interpretation via chat content blocks
+- [Rerank](docs/rerank.md) — document ranking (Qwen, GLM)
 - [Structured Output](docs/structured_output.md) — schema validation & parsing
 - [Middleware](docs/middleware.md) — creating and composing interceptors
 - [Telemetry](docs/telemetry.md) — OpenTelemetry, Prometheus, metric conventions

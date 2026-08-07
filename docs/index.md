@@ -17,10 +17,14 @@ This is the central documentation hub for the **Universal AI Provider SDK (uai-s
 - [Structured Output](structured_output.md) — JSON schema enforcement via Pydantic
 - [Streaming](streaming.md) — Server-Sent Events, TTFT, chunk aggregation
 - [Tools](tools.md) — Function calling & Model Context Protocol (MCP) integration
-- [Embeddings](embeddings.md) — Text embedding operations (Phase 2)
-- [Vision](vision.md) — Multi-modal image interpretation (Phase 2)
-- [Rerank](rerank.md) — Document ranking (Phase 2)
-- [Benchmark CLI](benchmark.md) — Offline benchmarking tool (Phase 2)
+- [Embeddings](embeddings.md) — Text embedding operations, routed via provider adapters
+- [Vision](vision.md) — Multi-modal image interpretation, routed via chat content blocks
+- [Rerank](rerank.md) — Document ranking via provider adapters (Qwen, GLM)
+- [Benchmark CLI](benchmark.md) — Offline benchmarking tool
+
+> **Audio / voice / TTS / transcription** are **not** implemented yet. As
+> previously decided, they are deferred (a large, MiniMax-focused lift); all
+> providers report these capabilities as `False`. See [providers.md](providers.md).
 
 ## Developer Guide
 

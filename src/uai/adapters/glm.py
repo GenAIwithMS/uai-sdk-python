@@ -23,7 +23,9 @@ from uai.exceptions import (
     UAIRateLimitError,
 )
 from uai.models import (
+    EmbeddingsResponse,
     FinishReason,
+    RerankResponse,
     Role,
     StreamChunk,
     UnifiedRequest,
@@ -32,6 +34,7 @@ from uai.models import (
 )
 
 _DEFAULT_MODEL = "glm-4.7"
+_DEFAULT_RERANK_MODEL = "rerankv3.5"
 
 _FINISH_REASON_MAP = {
     "stop": FinishReason.STOP,
@@ -313,3 +316,50 @@ class GLMAdapter(BaseProviderAdapter):
             "tts": False,
             "transcription": False,
         }
+
+    # -- Embeddings --------------------------------------------------------
+
+    def parse_embed_response(
+        self, response: dict[str, Any], model: str | None
+    ) -> EmbeddingsResponse:
+        # GLM embedding responses use the OpenAI-compatible schema.
+        return super().parse_embed_response(response, model)
+
+    # -- Rerank ------------------------------------------------------------
+
+    def format_rerank_request(self, model: str, query: str, documents: list[str]) -> dict[str, Any]:
+        """Translate a rerank request into the GLM wire format."""
+        return {
+            "model": model or _DEFAULT_RERANK_MODEL,
+            "query": query,
+            "documents": documents,
+        }
+
+    def parse_rerank_response(
+        self, response: dict[str, Any], model: str | None = None
+    ) -> RerankResponse:
+        """Parse a GLM rerank response into ``RerankResponse``."""
+        from uai.models import RerankResult
+
+        results = []
+        for item in response.get("results") or []:
+            results.append(
+                RerankResult(
+                    index=item.get("index", 0),
+                    score=item.get("relevance_score", item.get("score", 0.0)),
+                    text=item.get("document") or None,
+                )
+            )
+        results.sort(key=lambda r: r.score, reverse=True)
+        usage_raw = response.get("usage") or {}
+        usage = UsageMetrics(
+            input_tokens=usage_raw.get("prompt_tokens", usage_raw.get("input_tokens", 0)),
+            output_tokens=usage_raw.get("completion_tokens", usage_raw.get("output_tokens", 0)),
+        )
+        return RerankResponse(
+            results=results,
+            model=model or response.get("model"),
+            provider=self.provider_name,
+            usage=usage,
+            raw=response,
+        )

@@ -244,3 +244,37 @@ class TestHandleStreaming:
         content_chunks = [c for c in chunks if c.content is not None]
         assert content_chunks[0].ttft_ms is not None
         assert content_chunks[1].ttft_ms is None
+
+
+class TestEmbeddings:
+    def test_format_embed_request(self):
+        adapter = GLMAdapter()
+        body = adapter.format_embed_request("embedding-3", ["hello"])
+        assert body == {"model": "embedding-3", "input": ["hello"]}
+
+    def test_parse_embed_response(self):
+        adapter = GLMAdapter()
+        raw = {
+            "data": [{"embedding": [0.7], "index": 0}],
+            "usage": {"prompt_tokens": 4},
+        }
+        result = adapter.parse_embed_response(raw, "embedding-3")
+        assert result.vectors[0].values == [0.7]
+        assert result.vectors[0].dimension == 1
+        assert result.provider == "glm"
+
+
+class TestRerank:
+    def test_format_rerank_request(self):
+        adapter = GLMAdapter()
+        body = adapter.format_rerank_request("rerankv3.5", "query", ["a", "b"])
+        assert body == {"model": "rerankv3.5", "query": "query", "documents": ["a", "b"]}
+
+    def test_parse_rerank_response(self):
+        adapter = GLMAdapter()
+        raw = {
+            "results": [{"index": 1, "relevance_score": 0.2}, {"index": 0, "relevance_score": 0.8}]
+        }
+        result = adapter.parse_rerank_response(raw, "rerankv3.5")
+        assert [r.index for r in result.results] == [0, 1]
+        assert result.provider == "glm"

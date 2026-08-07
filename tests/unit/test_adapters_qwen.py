@@ -324,3 +324,54 @@ class TestHandleStreaming:
         ]
         chunks = list(adapter.handle_streaming(self._fake_response(lines), make_request()))
         assert chunks[-1].is_final is True
+
+
+class TestEmbeddings:
+    def test_format_embed_request(self):
+        adapter = QwenAdapter()
+        body = adapter.format_embed_request("text-embedding-v4", ["hello", "world"])
+        assert body == {"model": "text-embedding-v4", "input": ["hello", "world"]}
+
+    def test_parse_embed_response(self):
+        adapter = QwenAdapter()
+        raw = {
+            "model": "text-embedding-v4",
+            "data": [
+                {"embedding": [0.1, 0.2, 0.3], "index": 0},
+                {"embedding": [0.4, 0.5, 0.6], "index": 1},
+            ],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 0},
+        }
+        result = adapter.parse_embed_response(raw, "text-embedding-v4")
+        assert len(result.vectors) == 2
+        assert result.vectors[0].values == [0.1, 0.2, 0.3]
+        assert result.vectors[0].dimension == 3
+        assert result.vectors[1].index == 1
+        assert result.provider == "qwen"
+
+
+class TestRerank:
+    def test_format_rerank_request(self):
+        adapter = QwenAdapter()
+        body = adapter.format_rerank_request("gte-rerank", "what is ai", ["doc1", "doc2"])
+        assert body == {"model": "gte-rerank", "query": "what is ai", "documents": ["doc1", "doc2"]}
+
+    def test_parse_rerank_response_sorted_by_score(self):
+        adapter = QwenAdapter()
+        raw = {
+            "model": "gte-rerank",
+            "results": [
+                {"index": 1, "relevance_score": 0.3},
+                {"index": 0, "relevance_score": 0.9},
+            ],
+        }
+        result = adapter.parse_rerank_response(raw, "gte-rerank")
+        assert [r.index for r in result.results] == [0, 1]
+        assert result.results[0].score == 0.9
+        assert result.results[1].index == 1
+
+    def test_parse_rerank_response_sets_provider(self):
+        adapter = QwenAdapter()
+        raw = {"results": [{"index": 0, "relevance_score": 0.5}]}
+        result = adapter.parse_rerank_response(raw)
+        assert result.provider == "qwen"

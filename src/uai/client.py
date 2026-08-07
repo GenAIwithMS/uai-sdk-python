@@ -19,10 +19,21 @@ from typing import Any, Callable
 
 import httpx
 
+from uai.adapters.base_adapter import BaseProviderAdapter
+from uai.adapters.deepseek import DeepSeekAdapter
+from uai.adapters.doubao import DoubaoAdapter
+from uai.adapters.glm import GLMAdapter
+from uai.adapters.hunyuan import HunyuanAdapter
+from uai.adapters.kimi import KimiAdapter
+from uai.adapters.minimax import MiniMaxAdapter
+from uai.adapters.qwen import QwenAdapter
+from uai.adapters.stepfun import StepFunAdapter
 from uai.exceptions import FeatureNotSupportedError, UAIError
 from uai.models import (
     ChatMessage,
+    EmbeddingsResponse,
     FinishReason,
+    RerankResponse,
     StreamChunk,
     UnifiedRequest,
     UnifiedResponse,
@@ -32,6 +43,22 @@ from uai.registry import apply_env_overrides, get_provider_config
 from uai.registry.schema import ProviderConfig, ProviderModel
 
 logger = logging.getLogger(__name__)
+
+_ADAPTER_REGISTRY: dict[str, type[BaseProviderAdapter]] = {}
+
+
+def _register_adapter(name: str, cls: type[BaseProviderAdapter]) -> None:
+    _ADAPTER_REGISTRY[name] = cls
+
+
+_register_adapter("deepseek", DeepSeekAdapter)
+_register_adapter("qwen", QwenAdapter)
+_register_adapter("glm", GLMAdapter)
+_register_adapter("kimi", KimiAdapter)
+_register_adapter("stepfun", StepFunAdapter)
+_register_adapter("doubao", DoubaoAdapter)
+_register_adapter("minimax", MiniMaxAdapter)
+_register_adapter("hunyuan", HunyuanAdapter)
 
 
 class UniversalAI:
@@ -97,10 +124,24 @@ class UniversalAI:
 
         self._default_model = model or self._config.default_model
 
+        self._adapters: dict[str, BaseProviderAdapter] = {}
+
         logger.debug(
             f"UniversalAI client initialized with provider={self._default_provider}, "
             f"model={self._default_model}"
         )
+
+    def _get_adapter(self, provider_lower: str) -> BaseProviderAdapter:
+        """Return the adapter instance for a provider, creating it lazily."""
+        if provider_lower not in self._adapters:
+            adapter_cls = _ADAPTER_REGISTRY.get(provider_lower)
+            if adapter_cls is None:
+                available = ", ".join(_ADAPTER_REGISTRY.keys())
+                raise ValueError(
+                    f"No adapter for provider '{provider_lower}'. Available: {available}"
+                )
+            self._adapters[provider_lower] = adapter_cls()
+        return self._adapters[provider_lower]
 
     def _get_api_key(self, config: ProviderConfig) -> str | None:
         """Get API key from credentials or environment."""
@@ -186,6 +227,149 @@ class UniversalAI:
         if stream:
             return self._execute_streaming_chat(request, stream_callback)
         return self._execute_chat(request)
+
+    def embed(
+        self,
+        text: str | list[str],
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> EmbeddingsResponse:
+        """
+        Generate embeddings for one or more input texts.
+
+        Args:
+            text: A single text or a list of texts to embed.
+            provider: Target provider (uses default if not specified).
+            model: Embedding model name (uses default if not specified).
+
+        Returns:
+            An ``EmbeddingsResponse`` with one vector per input text.
+        """
+        provider_lower = (provider or self._default_provider).lower()
+        config = self._resolve_model(provider_lower, model or self._default_model)
+
+        model_id = model or self._default_model
+        resolved_id, model_info = self._resolve_model_info(config, model_id)
+
+        if not model_info.capabilities.embeddings:
+            raise FeatureNotSupportedError(
+                feature="embeddings",
+                provider=provider_lower,
+                model=resolved_id,
+            )
+
+        api_key = self._get_api_key(config)
+        if not api_key:
+            raise ValueError(
+                f"API key not found for provider {provider_lower}. "
+                f"Set {config.api_key_env_var} environment variable or pass api_key."
+            )
+
+        adapter = self._get_adapter(provider_lower)
+        adapter.authenticate({"api_key": api_key})
+
+        texts = [text] if isinstance(text, str) else list(text)
+        body = adapter.format_embed_request(resolved_id, texts)
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            response = httpx.post(
+                f"{config.base_url}{adapter.embed_path}",
+                headers=headers,
+                json=body,
+                timeout=config.timeout,
+            )
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            raise self._handle_http_error(e, provider_lower) from e
+        except httpx.TimeoutException as e:
+            raise UAIError(f"Request timeout: {e}") from e
+        except httpx.RequestError as e:
+            raise UAIError(f"Network error: {e}") from e
+
+        result = adapter.parse_embed_response(response.json(), resolved_id)
+        if result.provider is None:
+            result.provider = provider_lower
+        return result
+
+    def rerank(
+        self,
+        query: str,
+        documents: list[str],
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> RerankResponse:
+        """
+        Rank documents by relevance to a query.
+
+        Args:
+            query: The query text to rank documents against.
+            documents: The candidate documents to rerank.
+            provider: Provider name (uses default if not specified).
+            model: Rerank model name (uses default if not specified).
+
+        Returns:
+            A RerankResponse with documents ordered by descending relevance.
+        """
+        provider_lower = (provider or self._default_provider).lower()
+        config = self._resolve_model(provider_lower, model or self._default_model)
+
+        model_id = model or self._default_model
+        resolved_id, model_info = self._resolve_model_info(config, model_id)
+
+        if not model_info.capabilities.rerank:
+            raise FeatureNotSupportedError(
+                feature="rerank",
+                provider=provider_lower,
+                model=resolved_id,
+            )
+
+        api_key = self._get_api_key(config)
+        if not api_key:
+            raise ValueError(
+                f"API key not found for provider {provider_lower}. "
+                f"Set {config.api_key_env_var} environment variable or pass api_key."
+            )
+
+        adapter = self._get_adapter(provider_lower)
+        adapter.authenticate({"api_key": api_key})
+
+        body = self._format_rerank_body(adapter, resolved_id, query, documents)
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            response = httpx.post(
+                f"{config.base_url}{adapter.rerank_path}",
+                headers=headers,
+                json=body,
+                timeout=config.timeout,
+            )
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            raise self._handle_http_error(e, provider_lower) from e
+        except httpx.TimeoutException as e:
+            raise UAIError(f"Request timeout: {e}") from e
+        except httpx.RequestError as e:
+            raise UAIError(f"Network error: {e}") from e
+
+        result = adapter.parse_rerank_response(response.json(), resolved_id)
+        if result.provider is None:
+            result.provider = provider_lower
+        return result
+
+    def _format_rerank_body(
+        self, adapter: BaseProviderAdapter, model: str, query: str, documents: list[str]
+    ) -> dict[str, Any]:
+        """Build the rerank request body via the adapter's format method."""
+        return adapter.format_rerank_request(model, query, documents)
 
     def _resolve_model(self, provider_lower: str, model_id: str) -> ProviderConfig:
         """Get provider config and resolve model."""
