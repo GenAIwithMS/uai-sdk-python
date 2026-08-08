@@ -18,7 +18,14 @@ import json
 from collections.abc import Iterator
 from typing import Any
 
-from uai.models import StreamChunk, UnifiedRequest, UnifiedResponse
+from uai.exceptions import FeatureNotSupportedError
+from uai.models import (
+    EmbeddingsResponse,
+    RerankResponse,
+    StreamChunk,
+    UnifiedRequest,
+    UnifiedResponse,
+)
 
 
 class BaseProviderAdapter(abc.ABC):
@@ -35,6 +42,11 @@ class BaseProviderAdapter(abc.ABC):
     """
 
     provider_name: str = ""
+
+    # Endpoint paths used for multimodal / non-chat features.  Providers
+    # override these when their wire paths differ from the defaults.
+    embed_path: str = "/embeddings"
+    rerank_path: str = "/rerank"
 
     @abc.abstractmethod
     def authenticate(self, credentials: dict[str, Any]) -> None:
@@ -214,3 +226,96 @@ class BaseProviderAdapter(abc.ABC):
             Dict mapping capability names to bool (e.g., {'chat': True, 'vision': False}).
         """
         ...
+
+    # -- Embeddings --------------------------------------------------------
+
+    def format_embed_request(self, model: str, texts: list[str]) -> dict[str, Any]:
+        """
+        Translate an embedding request into the provider's wire format.
+
+        The default implementation targets the OpenAI-compatible
+        ``POST /embeddings`` schema, which the majority of providers share.
+        Adapters whose embedding endpoints differ may override this method.
+
+        Args:
+            model: The embedding model name.
+            texts: The input texts to embed.
+
+        Returns:
+            A dictionary ready to be JSON-serialized and sent to the provider.
+        """
+        return {"model": model, "input": texts}
+
+    def parse_embed_response(
+        self, response: dict[str, Any], model: str | None
+    ) -> EmbeddingsResponse:
+        """
+        Translate a provider's embedding response into EmbeddingsResponse.
+
+        The default implementation covers the OpenAI-compatible
+        ``{"data": [{"embedding": [...], "index": n}], "usage": {...}}``
+        schema shared by most providers.
+
+        Args:
+            response: The raw JSON response from the provider.
+            model: The model name used for the request.
+
+        Returns:
+            A normalized EmbeddingsResponse object.
+        """
+        from uai.models import EmbeddingResult, UsageMetrics
+
+        usage_raw = response.get("usage") or {}
+        data = response.get("data") or []
+        vectors: list[EmbeddingResult] = []
+        for item in data:
+            vectors.append(
+                EmbeddingResult(
+                    values=item.get("embedding", []),
+                    dimension=len(item.get("embedding", [])),
+                    index=item.get("index", 0),
+                )
+            )
+        usage = UsageMetrics(
+            input_tokens=usage_raw.get("prompt_tokens", 0),
+            output_tokens=usage_raw.get("completion_tokens", 0),
+        )
+        return EmbeddingsResponse(
+            vectors=vectors,
+            model=model or response.get("model"),
+            provider=self.provider_name,
+            usage=usage,
+            raw=response,
+        )
+
+    # -- Rerank ------------------------------------------------------------
+
+    def format_rerank_request(self, model: str, query: str, documents: list[str]) -> dict[str, Any]:
+        """
+        Translate a rerank request into the provider's wire format.
+
+        Providers vary widely in rerank schemas, so the base implementation
+        raises FeatureNotSupportedError. Adapters for rerank-capable providers
+        must override this method.
+
+        Args:
+            model: The rerank model name.
+            query: The query text against which documents are scored.
+            documents: The candidate documents to rerank.
+
+        Returns:
+            A dictionary ready to be JSON-serialized and sent to the provider.
+        """
+        raise FeatureNotSupportedError(feature="rerank", provider=self.provider_name)
+
+    def parse_rerank_response(
+        self, response: dict[str, Any], model: str | None = None
+    ) -> RerankResponse:
+        """
+        Parse a provider's rerank response into RerankResponse.
+
+        Providers vary widely in rerank response schemas, so the default
+        raises FeatureNotSupportedError. Adapters for rerank-capable
+        providers must override this method.
+        """
+        raise FeatureNotSupportedError(feature="rerank", provider=self.provider_name)

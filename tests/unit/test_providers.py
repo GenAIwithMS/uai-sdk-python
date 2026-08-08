@@ -281,10 +281,14 @@ class TestCheckCapability:
         with pytest.raises(ValueError, match="Unknown capability"):
             check_capability("deepseek", "deepseek-chat", "time_travel")
 
-    def test_minimax_audio_capabilities(self):
-        # MiniMax supports TTS and transcription
-        check_capability("minimax", "minimax-m2.5", "tts")
-        check_capability("minimax", "minimax-m2.5", "transcription")
+    def test_minimax_audio_not_implemented(self):
+        # MiniMax voice features are intentionally not yet implemented
+        with pytest.raises(FeatureNotSupportedError, match="audio"):
+            check_capability("minimax", "minimax-m2.5", "audio")
+        with pytest.raises(FeatureNotSupportedError, match="tts"):
+            check_capability("minimax", "minimax-m2.5", "tts")
+        with pytest.raises(FeatureNotSupportedError, match="transcription"):
+            check_capability("minimax", "minimax-m2.5", "transcription")
 
     def test_glm_no_streaming_for_embedding(self):
         with pytest.raises(FeatureNotSupportedError, match="streaming"):
@@ -360,7 +364,7 @@ class TestCapabilityMatrix:
             ("kimi", {"chat", "streaming", "tools"}),
             ("stepfun", {"chat", "streaming", "tools", "vision", "embeddings"}),
             ("doubao", {"chat", "streaming", "tools", "vision", "embeddings"}),
-            ("minimax", {"chat", "streaming", "tools", "embeddings", "tts", "transcription"}),
+            ("minimax", {"chat", "streaming", "tools", "vision", "embeddings"}),
             ("hunyuan", {"chat", "streaming", "tools", "vision", "embeddings"}),
         ],
     )
@@ -378,6 +382,8 @@ class TestCapabilityMatrix:
             ("kimi", "vision"),
             ("doubao", "tts"),
             ("hunyuan", "tts"),
+            ("minimax", "tts"),
+            ("minimax", "audio"),
         ],
     )
     def test_aggregate_capabilities_disabled(self, provider_name, disabled_cap):

@@ -1,9 +1,9 @@
 """
-Qwen (DashScope) provider adapter implementation.
+MiniMax provider adapter implementation.
 
 Translates between the Universal AI Provider SDK's unified models
-and the OpenAI-compatible Qwen/DashScope API format.  Handles Qwen's
-vision content blocks, tool calls, and SSE streaming.
+and the MiniMax API format (OpenAI-compatible chat completions).
+Audio / TTS capabilities are intentionally not implemented yet.
 """
 
 from __future__ import annotations
@@ -24,9 +24,7 @@ from uai.exceptions import (
     UAIRateLimitError,
 )
 from uai.models import (
-    EmbeddingsResponse,
     FinishReason,
-    RerankResponse,
     Role,
     StreamChunk,
     UnifiedRequest,
@@ -34,8 +32,7 @@ from uai.models import (
     UsageMetrics,
 )
 
-_DEFAULT_MODEL = "qwen-plus"
-_DEFAULT_RERANK_MODEL = "gte-rerank"
+_DEFAULT_MODEL = "minimax-m2.5"
 
 _FINISH_REASON_MAP = {
     "stop": FinishReason.STOP,
@@ -47,28 +44,28 @@ _FINISH_REASON_MAP = {
 }
 
 
-class QwenAdapter(BaseProviderAdapter):
-    """Adapter for Qwen/DashScope API.
+class MiniMaxAdapter(BaseProviderAdapter):
+    """Adapter for the MiniMax API.
 
-    Translates the SDK's ``UnifiedRequest`` into the DashScope
-    OpenAI-compatible chat completions schema and normalizes responses
-    back into ``UnifiedResponse``.  Supports vision content blocks,
-    function calling, SSE streaming, and structured output.
+    Translates the SDK's ``UnifiedRequest`` into the OpenAI-compatible
+    MiniMax chat completions schema and normalizes responses back into
+    ``UnifiedResponse``.  Handles vision content blocks, tool calls,
+    SSE streaming, and structured output.
     """
 
-    provider_name = "qwen"
+    provider_name = "minimax"
 
     def __init__(self) -> None:
         self._api_key: str | None = None
 
     def authenticate(self, credentials: dict[str, Any]) -> None:
-        """Set up authentication with the Qwen API."""
+        """Set up authentication with the MiniMax API."""
         self._api_key = credentials.get("api_key") or credentials.get("bearer_token")
         if not self._api_key:
-            raise UAIAuthenticationError("Qwen API key required")
+            raise UAIAuthenticationError("MiniMax API key required")
 
     def format_request(self, request: UnifiedRequest) -> dict[str, Any]:
-        """Translate UnifiedRequest to Qwen API format."""
+        """Translate UnifiedRequest to MiniMax API format."""
         body: dict[str, Any] = {}
 
         body["model"] = request.model or _DEFAULT_MODEL
@@ -100,12 +97,12 @@ class QwenAdapter(BaseProviderAdapter):
 
     @staticmethod
     def _format_messages(messages: list[Any]) -> list[dict[str, Any]]:
-        """Convert unified ``ChatMessage`` objects into Qwen wire format."""
+        """Convert unified ``ChatMessage`` objects into MiniMax wire format."""
         formatted: list[dict[str, Any]] = []
         for msg in messages:
             msg_dict: dict[str, Any] = {"role": msg.role.value}
             if msg.content is not None:
-                msg_dict["content"] = QwenAdapter._format_content(msg.content)
+                msg_dict["content"] = MiniMaxAdapter._format_content(msg.content)
             if msg.name:
                 msg_dict["name"] = msg.name
             if msg.role == Role.ASSISTANT and msg.tool_calls:
@@ -129,13 +126,13 @@ class QwenAdapter(BaseProviderAdapter):
         return content
 
     def parse_response(self, response: dict[str, Any], request: UnifiedRequest) -> UnifiedResponse:
-        """Translate Qwen API response to UnifiedResponse.
+        """Translate MiniMax API response to UnifiedResponse.
 
         :raises ResponseParsingError: If the response has no usable choices.
         """
         choices = response.get("choices") or []
         if not choices:
-            raise ResponseParsingError("Qwen response contains no 'choices'", provider="qwen")
+            raise ResponseParsingError("MiniMax response contains no 'choices'", provider="minimax")
 
         choice = choices[0]
         message = choice.get("message") or {}
@@ -192,13 +189,9 @@ class QwenAdapter(BaseProviderAdapter):
 
     @staticmethod
     def _parse_usage(data: dict[str, Any]) -> UsageMetrics:
-        # DashScope reports input_tokens/output_tokens; OpenAI-compatible
-        # mode reports prompt_tokens/completion_tokens.  Accept both.
-        input_tokens = data.get("prompt_tokens", data.get("input_tokens", 0))
-        output_tokens = data.get("completion_tokens", data.get("output_tokens", 0))
         return UsageMetrics(
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
+            input_tokens=data.get("prompt_tokens", data.get("input_tokens", 0)),
+            output_tokens=data.get("completion_tokens", data.get("output_tokens", 0)),
             cache_read_tokens=data.get("cache_read_input_tokens"),
             cache_write_tokens=data.get("cache_creation_input_tokens"),
             reasoning_tokens=data.get("reasoning_tokens"),
@@ -210,20 +203,20 @@ class QwenAdapter(BaseProviderAdapter):
             payload = json.loads(content)
         except json.JSONDecodeError as exc:
             raise ResponseParsingError(
-                "Structured output could not be parsed as JSON", provider="qwen"
+                "Structured output could not be parsed as JSON", provider="minimax"
             ) from exc
 
         try:
             return schema.model_validate(payload)
         except ValidationError as exc:
             raise ResponseParsingError(
-                f"Structured output validation failed: {exc}", provider="qwen"
+                f"Structured output validation failed: {exc}", provider="minimax"
             ) from exc
 
     def handle_streaming(self, response: Any, request: UnifiedRequest) -> Iterator[StreamChunk]:
-        """Parse Qwen SSE streaming response into ``StreamChunk`` objects.
+        """Parse MiniMax SSE streaming response into ``StreamChunk`` objects.
 
-        DashScope streams OpenAI-compatible ``data:`` lines.  Yields a
+        MiniMax streams OpenAI-compatible ``data:`` lines.  Yields a
         chunk per SSE event, enriched with provider/model/id metadata
         and a real ``ttft_ms`` value on the first content chunk.
         """
@@ -304,20 +297,24 @@ class QwenAdapter(BaseProviderAdapter):
                 if finish_reason_raw is not None:
                     break
         except Exception as e:
-            raise UAINetworkError(f"Qwen streaming failed: {e}") from e
+            raise UAINetworkError(f"MiniMax streaming failed: {e}") from e
 
     def translate_error(self, status_code: int, error_body: Any) -> Exception:
-        """Translate Qwen API errors to SDK exceptions."""
+        """Translate MiniMax API errors to SDK exceptions."""
         if status_code == 401:
-            return UAIAuthenticationError(f"Qwen authentication failed: {error_body}")
+            return UAIAuthenticationError(f"MiniMax authentication failed: {error_body}")
         elif status_code == 429:
-            return UAIRateLimitError(f"Qwen rate limited: {error_body}", retry_after=5.0)
+            return UAIRateLimitError(f"MiniMax rate limited: {error_body}", retry_after=5.0)
         elif status_code >= 500:
-            return UAINetworkError(f"Qwen server error ({status_code}): {error_body}")
-        return UAIError(f"Qwen API error ({status_code}): {error_body}")
+            return UAINetworkError(f"MiniMax server error ({status_code}): {error_body}")
+        return UAIError(f"MiniMax API error ({status_code}): {error_body}")
 
     def capabilities(self) -> dict[str, bool]:
-        """Return Qwen's capability matrix (full model set)."""
+        """Return MiniMax's capability matrix (text + vision models).
+
+        Audio / TTS / transcription are intentionally reported as
+        unsupported until the voice features are implemented.
+        """
         return {
             "chat": True,
             "streaming": True,
@@ -326,54 +323,7 @@ class QwenAdapter(BaseProviderAdapter):
             "embeddings": True,
             "audio": False,
             "reasoning": False,
-            "rerank": True,
+            "rerank": False,
             "tts": False,
             "transcription": False,
         }
-
-    # -- Embeddings --------------------------------------------------------
-
-    def parse_embed_response(
-        self, response: dict[str, Any], model: str | None
-    ) -> EmbeddingsResponse:
-        # DashScope embedding responses use the OpenAI-compatible schema.
-        return super().parse_embed_response(response, model)
-
-    # -- Rerank ------------------------------------------------------------
-
-    def format_rerank_request(self, model: str, query: str, documents: list[str]) -> dict[str, Any]:
-        """Translate a rerank request into the DashScope wire format."""
-        return {
-            "model": model or _DEFAULT_RERANK_MODEL,
-            "query": query,
-            "documents": documents,
-        }
-
-    def parse_rerank_response(
-        self, response: dict[str, Any], model: str | None = None
-    ) -> RerankResponse:
-        """Parse a DashScope rerank response into ``RerankResponse``."""
-        from uai.models import RerankResult
-
-        results = []
-        for item in response.get("results") or []:
-            results.append(
-                RerankResult(
-                    index=item.get("index", 0),
-                    score=item.get("relevance_score", item.get("score", 0.0)),
-                    text=item.get("document") or None,
-                )
-            )
-        results.sort(key=lambda r: r.score, reverse=True)
-        usage_raw = response.get("usage") or {}
-        usage = UsageMetrics(
-            input_tokens=usage_raw.get("prompt_tokens", usage_raw.get("input_tokens", 0)),
-            output_tokens=usage_raw.get("completion_tokens", usage_raw.get("output_tokens", 0)),
-        )
-        return RerankResponse(
-            results=results,
-            model=model or response.get("model"),
-            provider=self.provider_name,
-            usage=usage,
-            raw=response,
-        )

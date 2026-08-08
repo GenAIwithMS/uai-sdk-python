@@ -45,11 +45,15 @@ from pydantic import (
 __all__ = [
     "ChatMessage",
     "ContentBlock",
+    "EmbeddingResult",
+    "EmbeddingsResponse",
     "FinishReason",
     "FunctionCall",
     "FunctionDefinition",
     "ImageContent",
     "ImageURL",
+    "RerankResult",
+    "RerankResponse",
     "Role",
     "StreamChunk",
     "TextContent",
@@ -599,4 +603,78 @@ class StreamChunk(BaseModel):
     raw: dict[str, Any] | None = Field(
         default=None,
         description="The original provider chunk, for debugging.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Embeddings
+# ---------------------------------------------------------------------------
+
+
+class EmbeddingResult(BaseModel):
+    """A single embedding vector for one input text."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    values: list[float] = Field(
+        default_factory=list,
+        description="The embedding vector as a list of floats.",
+    )
+    dimension: int = Field(default=0, ge=0, description="Vector dimensionality.")
+    index: int = Field(
+        default=0, ge=0, description="Index of the input this vector corresponds to."
+    )
+
+
+class EmbeddingsResponse(BaseModel):
+    """Normalized response for an embedding request."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    vectors: list[EmbeddingResult] = Field(
+        default_factory=list, description="Embedding vectors, one per input text."
+    )
+    model: str | None = Field(default=None, description="Model that served the request.")
+    provider: str | None = Field(default=None, description="Provider that served the request.")
+    usage: UsageMetrics = Field(
+        default_factory=UsageMetrics, description="Token usage for the embedding request."
+    )
+    raw: dict[str, Any] | None = Field(
+        default=None, description="The original provider response payload."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Rerank
+# ---------------------------------------------------------------------------
+
+
+class RerankResult(BaseModel):
+    """A single reranked document with its relevance score."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    index: int = Field(ge=0, description="Index of the document in the original input list.")
+    score: float = Field(description="Relevance score assigned by the reranker.")
+    text: str | None = Field(
+        default=None, description="The reranked document text (when returned by the provider)."
+    )
+
+
+class RerankResponse(BaseModel):
+    """Unified response for a rerank request."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    results: list[RerankResult] = Field(
+        default_factory=list,
+        description="Documents ordered by descending relevance.",
+    )
+    model: str | None = Field(default=None, description="Model that served the request.")
+    provider: str | None = Field(default=None, description="Provider that served the request.")
+    usage: UsageMetrics = Field(
+        default_factory=UsageMetrics, description="Token usage for the rerank request."
+    )
+    raw: dict[str, Any] | None = Field(
+        default=None, description="The original provider response payload."
     )

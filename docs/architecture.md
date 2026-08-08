@@ -15,9 +15,10 @@ Universal AI SDK (client library)
      ▼
 Provider Adapters (language-specific clients)
      │
-  ┌──────┬────────┬─────────┐
+  ┌──────┬────────┬─────────┬─────────┐
   ▼      ▼        ▼         ▼
-DeepSeek  Qwen   GLM   Other Providers...
+DeepSeek  Qwen   GLM   Other Providers
+(Kimi, StepFun, Doubao, MiniMax, Hunyuan)
 ```
 
 ## Key Concepts
@@ -33,8 +34,14 @@ Each provider has an adapter class implementing:
 - `format_request()` — map UnifiedRequest → provider schema
 - `parse_response()` — map provider response → UnifiedResponse
 - `handle_streaming()`
-- `translate_errors()`
+- `translate_error()`
 - `capabilities()` — returns a boolean capability matrix
+
+Adapters also expose non-chat feature hooks. Embeddings default to the shared
+OpenAI-compatible `format_embed_request()` / `parse_embed_response()`, so most
+providers inherit them as-is. Rerank is provider-specific; base
+`format_rerank_request()` / `parse_rerank_response()` raise
+`FeatureNotSupportedError` unless a provider overrides them (Qwen, GLM do).
 
 ### Capability Matrix
 
@@ -78,6 +85,10 @@ Users interact with the SDK through the `UniversalAI.chat()` method:
 - **Streaming**: Receive response chunks as they're generated
 - **Tools**: Call provider-specific functions when supported
 - **Structured Output**: Parse responses into structured data
+
+Additional feature entry points route through the same adapter layer:
+- **`client.embed()`**: text → embedding vectors (any embedding-capable model)
+- **`client.rerank()`**: score documents against a query (Qwen, GLM)
 
 The SDK maintains provider abstraction through:
 1. Standardized `UnifiedRequest` and `UnifiedResponse` objects
