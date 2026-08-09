@@ -20,6 +20,7 @@ from uai.middleware.cache import CacheMiddleware
 from uai.middleware.circuit_breaker import CircuitBreakerMiddleware
 from uai.middleware.engine import MiddlewareEngine, MiddlewareHalt
 from uai.middleware.logging import LoggingMiddleware
+from uai.middleware.metrics import MetricsMiddleware, MetricsRegistry
 from uai.middleware.retry import RetryMiddleware
 from uai.middleware.tracing import Span, SpanRecorder, TracingMiddleware
 
@@ -28,6 +29,8 @@ __all__ = [
     "CacheMiddleware",
     "CircuitBreakerMiddleware",
     "LoggingMiddleware",
+    "MetricsMiddleware",
+    "MetricsRegistry",
     "MiddlewareContext",
     "MiddlewareEngine",
     "MiddlewareHalt",

@@ -4,9 +4,6 @@
 
 This is the central documentation hub for the **Universal AI Provider SDK (uai-sdk-python)**.
 
-> **Note:** Telemetry (OpenTelemetry metrics) is a roadmap item that is not
-> yet implemented; tracing is available via the `TracingMiddleware`.
-
 ## Getting Started
 
 - [Architecture](architecture.md) — High-level design: middleware pipeline, provider adapter contract, `UnifiedRequest` lifecycle
@@ -29,9 +26,9 @@ This is the central documentation hub for the **Universal AI Provider SDK (uai-s
 
 ## Developer Guide
 
-- [Middleware](middleware.md) — Creating and composing interceptors (Cache, Retry, Circuit Breaker, Logging, Tracing)
+- [Middleware](middleware.md) — Creating and composing interceptors (Cache, Retry, Circuit Breaker, Logging, Tracing, Metrics)
 - [Benchmark](benchmark.md) — Offline benchmarking CLI covering all models
-- [Telemetry](telemetry.md) — OpenTelemetry integration, Prometheus metric conventions (roadmap)
+- [Telemetry](telemetry.md) — Prometheus-style metrics (in-process registry) and GenAI tracing spans
 - [PDK](pdk.md) — Provider Development Kit: adding a new provider adapter
 - [Providers](providers.md) — Capability matrix & provider-specific notes
 

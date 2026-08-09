@@ -1,26 +1,56 @@
 # Telemetry
 
-> Stub — content to be written.
-
-## Overview
-
-The SDK emits standardized metrics and traces using OpenTelemetry conventions for Generative AI.
+The SDK emits standardized operational metrics using Prometheus naming
+conventions (the `uai_*` namespace, Module 1.5.1) and per-call GenAI
+tracing spans.
 
 ## Metrics (Prometheus-style)
 
+Metrics are collected in-process by the **Metric Aggregation Engine**
+(`MetricsRegistry`) and recorded automatically by `MetricsMiddleware`.
+No OpenTelemetry dependency is required — the registry is dependency-free
+and renderable in Prometheus text exposition format via `render()`.
+
 | Metric | Type | Description |
 |--------|------|-------------|
-| `uai_requests_total` | Counter | Total SDK calls, tagged by provider/status |
-| `uai_request_duration_seconds` | Histogram | End-to-end latency |
+| `uai_requests_total` | Counter | Total SDK calls, tagged by operation/provider/status |
+| `uai_provider_requests_total` | Counter | Per-provider calls, tagged by status |
+| `uai_request_duration_seconds` | Histogram | End-to-end latency of the operation |
 | `uai_ttft_seconds` | Histogram | Time-to-first-token (streaming) |
 | `uai_tokens_input_total` | Counter | Prompt token usage |
 | `uai_tokens_output_total` | Counter | Output token usage |
 | `uai_cache_hits_total` | Counter | Cache hit count |
 | `uai_retries_total` | Counter | Automatic retry count |
+| `uai_errors_total` | Counter | Errors, tagged by type (exception class name) |
+
+## Enabling metrics
+
+```python
+from uai import UniversalAI
+from uai.middleware import MetricsMiddleware, MetricsRegistry
+
+registry = MetricsRegistry()
+client = UniversalAI(provider="deepseek")
+client.use(MetricsMiddleware(registry=registry))
+
+result = client.chat(messages=[{"role": "user", "content": "Hello"}])
+
+# Inspect individual metrics
+registry.counter_value("uai_requests_total", {"operation": "chat", "status": "success"})
+registry.histogram_sum("uai_request_duration_seconds", {"operation": "chat"})
+
+# Or render everything in Prometheus text format (e.g. for /metrics)
+print(registry.render())
+```
+
+Share one `MetricsRegistry` across clients to aggregate globally. Register
+`MetricsMiddleware` in the same chain as the other opt-in middleware
+(`client.use(...)`).
 
 ## Tracing
 
-Each LLM invocation generates a span annotated with GenAI semantic attributes:
+Each LLM invocation generates a span annotated with GenAI semantic
+attributes via `TracingMiddleware` (see [middleware.md](middleware.md)):
 
 | Attribute | Example |
 |-----------|---------|
@@ -31,21 +61,6 @@ Each LLM invocation generates a span annotated with GenAI semantic attributes:
 | `gen_ai.request.max_tokens` | `1024` |
 | `gen_ai.response.finish_reasons` | `["stop"]` |
 
-## Enabling Telemetry
-
-> **Note:** Telemetry *metrics* are a roadmap item — no OpenTelemetry
-> metric/export wiring exists in the SDK yet. Tracing per-call spans is
-> available today via `TracingMiddleware` (see [middleware.md](middleware.md));
-> the example below shows the intended opt-in surface. The client
-> constructor accepts only `api_key`, `provider`, `model`, `credentials`,
-> `timeout`, and `max_retries`.
-
-```python
-from uai import UniversalAI
-
-client = UniversalAI(
-    api_key="...",
-    provider="deepseek",
-    # enable_telemetry=True  # planned (not yet implemented)
-)
-```
+Spans are recorded in-process by `SpanRecorder` (`recorder.spans`); if the
+`opentelemetry` packages are installed, pass `use_otel=True` to also export
+attributes onto the current OpenTelemetry span.

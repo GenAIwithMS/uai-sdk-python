@@ -79,6 +79,7 @@ calls can be chained.
 | `CacheMiddleware` | In-memory TTL cache for identical non-streaming requests |
 | `LoggingMiddleware` | Structured request/response/error log lines, correlated by `request_id` |
 | `TracingMiddleware` | Records one span per call with GenAI semantic attributes (in-process recorder, optional OpenTelemetry export) |
+| `MetricsMiddleware` | Records Prometheus-style metrics (requests, latency, TTFT, tokens, cache, retries, errors) into a `MetricsRegistry` |
 
 ### RetryMiddleware
 

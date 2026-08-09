@@ -65,11 +65,11 @@ print(result.parsed)
 - ✅ Embeddings (`client.embed`) and rerank (`client.rerank`) via provider adapters
 - ✅ Vision via chat content blocks (image_url) on vision-capable models
 - ✅ Provider adapters with strict capability enforcement
-- ✅ Opt-in middleware — retry, cache, logging, tracing (`client.use(...)`)
+- ✅ Opt-in middleware — retry, cache, circuit breaker, logging, tracing, metrics (`client.use(...)`)
 - ✅ Benchmark CLI covering all chat models (`uai benchmark`)
 - ✅ Security-first design (no secret logging, input validation)
 - ✅ Extensible — easily add new providers via the [PDK](docs/pdk.md)
-- ⏳ Telemetry metrics (OpenTelemetry) — **not yet implemented** (roadmap)
+- ✅ Prometheus-style metrics — in-process `MetricsRegistry` with `render()`
 - ⏳ Audio / TTS / transcription — **not yet implemented** (deferred)
 
 ## Supported Providers
@@ -97,9 +97,9 @@ print(result.parsed)
 - [Vision](docs/vision.md) — multimodal image interpretation via chat content blocks
 - [Rerank](docs/rerank.md) — document ranking (Qwen, GLM)
 - [Structured Output](docs/structured_output.md) — schema validation & parsing
-- [Middleware](docs/middleware.md) — creating and composing interceptors (retry, cache, logging, tracing)
+- [Middleware](docs/middleware.md) — creating and composing interceptors (retry, cache, circuit breaker, logging, tracing, metrics)
 - [Benchmark](docs/benchmark.md) — offline benchmarking CLI covering all models
-- [Telemetry](docs/telemetry.md) — OpenTelemetry, Prometheus, metric conventions (roadmap)
+- [Telemetry](docs/telemetry.md) — Prometheus-style metrics and GenAI tracing spans
 - [Configuration](docs/configuration.md) — env vars, YAML config, API key management
 - [PDK](docs/pdk.md) — Provider Development Kit guide
 
