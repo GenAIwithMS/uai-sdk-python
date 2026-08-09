@@ -6,7 +6,8 @@ you need with `client.use(...)`.
 
 ## Pipeline
 
-The pipeline follows the interceptor pattern:
+The pipeline follows the interceptor pattern, executed by the
+**`MiddlewareEngine`** (Module 1.4.1):
 
 1. **`before_request`** hooks run in registration order — each may mutate
    the `UnifiedRequest`.
@@ -17,6 +18,44 @@ The pipeline follows the interceptor pattern:
 4. **`on_error`** hooks run (in reverse order) when the chain raises.
 
 Middleware are **synchronous**, matching the synchronous client.
+
+The engine (`MiddlewareEngine`) is normally used through the client — it
+owns one and delegates `use()` and the pipeline runs to it. It is also
+exported so advanced users can compose and test pipelines standalone.
+
+## Halting the flow (MiddlewareHalt)
+
+Any middleware can **halt the execution flow entirely** based on runtime
+conditions (Module 1.4.1) by raising `MiddlewareHalt` with a response. The
+engine short-circuits — the execute chain and the network call are
+skipped, and the supplied response is fed through the `after_response`
+hooks. `on_error` is **not** invoked: a halt is a deliberate outcome, not
+an error.
+
+```python
+from uai.middleware import MiddlewareHalt
+from uai.models import UnifiedResponse
+from uai.middleware.base import BaseMiddleware
+
+class FallbackMiddleware(BaseMiddleware):
+    """Serve a canned response for a blocked provider without any network call."""
+
+    def before_request(self, request, context):
+        if context.provider == "deepseek":
+            raise MiddlewareHalt(
+                UnifiedResponse(content="fallback: deepseek unavailable", model=context.model)
+            )
+        return request
+
+client.use(FallbackMiddleware())
+result = client.chat(messages=[{"role": "user", "content": "Hi"}])
+print(result.content)  # "fallback: deepseek unavailable"
+```
+
+Halting works from any hook (`before_request`, the `execute` chain) and
+for both non-streaming and streaming calls (a streaming halt replaces the
+provider stream with an iterable of chunks). Use it for guardrails,
+fallbacks, rate-limiting without burning tokens, or feature flags.
 
 ```python
 from uai import UniversalAI

@@ -13,6 +13,8 @@ from uai.exceptions import UAIError, UAINetworkError, UAIRateLimitError
 from uai.middleware import (
     CacheMiddleware,
     LoggingMiddleware,
+    MiddlewareEngine,
+    MiddlewareHalt,
     RetryMiddleware,
     SpanRecorder,
     TracingMiddleware,
@@ -79,7 +81,7 @@ class TestClientPipeline:
         client = UniversalAI(api_key="k", provider="deepseek")
         mw = RecordingMiddleware("m1", [])
         assert client.use(mw) is client
-        assert client._middleware == [mw]
+        assert client._engine.middleware == [mw]
 
     def test_use_rejects_non_middleware(self):
         client = UniversalAI(api_key="k", provider="deepseek")
@@ -167,12 +169,12 @@ class TestClientPipeline:
                 events.append(("after", response))
                 return response
 
-        client = UniversalAI(api_key="k", provider="deepseek")
-        client.use(Recorder())
+        engine = MiddlewareEngine()
+        engine.use(Recorder())
         ctx = MiddlewareContext(
             operation="chat", provider="deepseek", model="deepseek-chat", request=make_request()
         )
-        out = list(client._wrap_stream(iter(()), ctx))
+        out = list(engine._wrap_stream(iter(()), ctx))
         assert out == []
         assert events == [("after", None)]
 
@@ -187,8 +189,8 @@ class TestClientPipeline:
             def on_error(self, error, context):
                 events.append(("error", error))
 
-        client = UniversalAI(api_key="k", provider="deepseek")
-        client.use(Recorder())
+        engine = MiddlewareEngine()
+        engine.use(Recorder())
         ctx = MiddlewareContext(
             operation="chat", provider="deepseek", model="deepseek-chat", request=make_request()
         )
@@ -197,7 +199,7 @@ class TestClientPipeline:
             yield {"content": "a"}
             raise UAINetworkError("mid-stream")
 
-        out = client._wrap_stream(gen(), ctx)
+        out = engine._wrap_stream(gen(), ctx)
         assert next(out) == {"content": "a"}
         with pytest.raises(UAINetworkError):
             next(out)
@@ -492,3 +494,181 @@ class TestTracingMiddleware:
         span = recorder.spans[0]
         assert span.status == "error"
         assert "boom" in span.error
+
+
+class TestMiddlewareHalt:
+    """Module 1.4.1 — middleware can halt the execution flow entirely."""
+
+    def test_before_request_halt_skips_network(self, monkeypatch):
+        calls = {"n": 0}
+
+        class HaltMiddleware(BaseMiddleware):
+            def before_request(self, request, context):
+                calls["n"] += 1
+                raise MiddlewareHalt(
+                    UnifiedResponse(
+                        content="halted",
+                        provider=context.provider,
+                        model=context.model,
+                        finish_reason=FinishReason.STOP,
+                    )
+                )
+
+        def boom(*args, **kwargs):
+            raise AssertionError("network must not be reached")
+
+        client = UniversalAI(api_key="k", provider="deepseek")
+        client.use(HaltMiddleware())
+        monkeypatch.setattr(client_module.httpx, "post", boom)
+
+        result = client.chat(messages=[{"role": "user", "content": "Hi"}])
+        assert result.content == "halted"
+        assert calls["n"] == 1  # before_request ran once
+
+    def test_halt_runs_after_response_but_not_on_error(self):
+        events: list[str] = []
+        seen_contexts: list[MiddlewareContext] = []
+
+        class HaltMiddleware(BaseMiddleware):
+            def before_request(self, request, context):
+                raise MiddlewareHalt({"content": "halted"})
+
+        class Recorder(BaseMiddleware):
+            def after_response(self, response, context):
+                events.append("after")
+                seen_contexts.append(context)
+                return response
+
+            def on_error(self, error, context):
+                events.append("error")
+
+        engine = MiddlewareEngine()
+        engine.use(HaltMiddleware())
+        engine.use(Recorder())
+
+        result = engine.run(
+            "chat", "deepseek", "deepseek-chat", make_request(), lambda ctx: "never"
+        )
+        assert result == {"content": "halted"}
+        assert events == ["after"]  # after_response runs; on_error does not
+        assert seen_contexts[0].halted is True
+
+    def test_execute_chain_halt_skips_remaining_chain(self):
+        events: list[str] = []
+
+        class HaltMiddleware(BaseMiddleware):
+            def execute(self, call_next, context):
+                events.append("halt")
+                raise MiddlewareHalt("short-circuited")
+
+        class OuterMiddleware(BaseMiddleware):
+            def execute(self, call_next, context):
+                events.append("outer")
+                return call_next()
+
+        engine = MiddlewareEngine()
+        engine.use(OuterMiddleware())
+        engine.use(HaltMiddleware())
+
+        result = engine.run(
+            "chat", "deepseek", "deepseek-chat", make_request(), lambda ctx: "never"
+        )
+        assert result == "short-circuited"
+        # outer wrapped the chain, halt inside it short-circuited the network
+        assert events == ["outer", "halt"]
+
+    def test_streaming_halt_replaces_provider_stream(self):
+        seen_contexts: list[MiddlewareContext] = []
+
+        class HaltMiddleware(BaseMiddleware):
+            def before_request(self, request, context):
+                seen_contexts.append(context)
+                raise MiddlewareHalt(["chunk-1", "chunk-2"])
+
+        engine = MiddlewareEngine()
+        engine.use(HaltMiddleware())
+
+        result = list(
+            engine.run_stream("chat", "deepseek", "deepseek-chat", make_request(), lambda ctx: None)
+        )
+        assert result == ["chunk-1", "chunk-2"]
+        assert seen_contexts[0].halted is True
+
+    def test_halt_not_retried_by_retry_middleware(self):
+        attempts = {"n": 0}
+
+        class HaltMiddleware(BaseMiddleware):
+            def execute(self, call_next, context):
+                attempts["n"] += 1
+                raise MiddlewareHalt("halted")
+
+        engine = MiddlewareEngine()
+        engine.use(RetryMiddleware(max_retries=3, base_delay=0.001, jitter=False))
+        engine.use(HaltMiddleware())
+
+        result = engine.run(
+            "chat", "deepseek", "deepseek-chat", make_request(), lambda ctx: "never"
+        )
+        assert result == "halted"
+        assert attempts["n"] == 1  # halt is not retryable
+
+    def test_streaming_execute_chain_halt(self):
+        class HaltMiddleware(BaseMiddleware):
+            def execute(self, call_next, context):
+                raise MiddlewareHalt(["a", "b"])
+
+        engine = MiddlewareEngine()
+        engine.use(HaltMiddleware())
+
+        result = list(
+            engine.run_stream("chat", "deepseek", "deepseek-chat", make_request(), lambda ctx: None)
+        )
+        assert result == ["a", "b"]
+
+    def test_non_halt_before_request_error_propagates_without_on_error(self):
+        events: list[str] = []
+
+        class BoomMiddleware(BaseMiddleware):
+            def before_request(self, request, context):
+                raise UAINetworkError("boom in before")
+
+        class Recorder(BaseMiddleware):
+            def on_error(self, error, context):
+                events.append("error")
+
+        engine = MiddlewareEngine()
+        engine.use(BoomMiddleware())
+        engine.use(Recorder())
+
+        with pytest.raises(UAINetworkError):
+            engine.run("chat", "deepseek", "deepseek-chat", make_request(), lambda ctx: "never")
+        assert events == []  # before_request errors do not invoke on_error (pre-existing semantics)
+
+    def test_halt_exported_from_package(self):
+        from uai import MiddlewareHalt as TopLevelHalt
+        from uai.middleware import MiddlewareHalt
+
+        assert TopLevelHalt is MiddlewareHalt
+        exc = MiddlewareHalt({"content": "x"})
+        assert exc.response == {"content": "x"}
+
+    def test_halt_through_client_chat(self, monkeypatch):
+        class HaltMiddleware(BaseMiddleware):
+            def before_request(self, request, context):
+                raise MiddlewareHalt(
+                    UnifiedResponse(
+                        content="cached-fallback",
+                        provider=context.provider,
+                        model=context.model,
+                        finish_reason=FinishReason.STOP,
+                    )
+                )
+
+        def boom(*args, **kwargs):
+            raise AssertionError("network must not be reached")
+
+        client = UniversalAI(api_key="k", provider="deepseek")
+        client.use(HaltMiddleware())
+        monkeypatch.setattr(client_module.httpx, "post", boom)
+        result = client.chat(messages=[{"role": "user", "content": "Hi"}])
+        assert result.content == "cached-fallback"

@@ -43,6 +43,7 @@ class MiddlewareContext:
         request_id: Short random id for correlating logs/spans.
         attempt: Current retry attempt (0 = first try).
         cache_hit: Whether a cache middleware served the response.
+        halted: Whether a middleware halted the flow (Module 1.4.1).
         error: The error raised by the chain, if any.
         span: Reserved for tracing middleware (e.g. a ``Span`` object).
     """
@@ -55,6 +56,7 @@ class MiddlewareContext:
     request_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     attempt: int = 0
     cache_hit: bool = False
+    halted: bool = False
     error: BaseException | None = None
     span: Any = None
 

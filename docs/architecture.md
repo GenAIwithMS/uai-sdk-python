@@ -97,8 +97,13 @@ response = client.chat(messages=[{"role": "user", "content": "Hello"}])
 ```
 
 Optional middleware is registered explicitly via `client.use(...)` and wraps
-requests with cross-cutting concerns (retry, cache, logging, tracing). See
-[middleware.md](middleware.md).
+requests with cross-cutting concerns (retry, cache, logging, tracing). An
+**Interceptor Execution Engine** (Module 1.4.1) processes the chain:
+`before_request` hooks run in registration order, the `execute` chain
+wraps the call, and `after_response`/`on_error` hooks run in reverse.
+Middleware may also **halt the flow entirely** by raising
+`MiddlewareHalt` with a response — skipping the network call while still
+running `after_response`. See [middleware.md](middleware.md).
 
 ### Integration
 

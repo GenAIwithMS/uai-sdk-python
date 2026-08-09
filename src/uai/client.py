@@ -38,6 +38,7 @@ from uai.exceptions import (
     UAITimeoutError,
 )
 from uai.middleware.base import BaseMiddleware, MiddlewareContext
+from uai.middleware.engine import MiddlewareEngine
 from uai.models import (
     ChatMessage,
     EmbeddingsResponse,
@@ -136,7 +137,7 @@ class UniversalAI:
         self._default_model = model or self._config.default_model
 
         self._adapters: dict[str, BaseProviderAdapter] = {}
-        self._middleware: list[BaseMiddleware] = []
+        self._engine = MiddlewareEngine()
 
         logger.debug(
             f"UniversalAI client initialized with provider={self._default_provider}, "
@@ -156,29 +157,8 @@ class UniversalAI:
         Returns:
             The client, for chaining.
         """
-        items = middleware if isinstance(middleware, (list, tuple)) else [middleware]
-        for item in items:
-            if not isinstance(item, BaseMiddleware):
-                raise TypeError(f"Expected BaseMiddleware, got {type(item).__name__}")
-            self._middleware.append(item)
+        self._engine.use(middleware)
         return self
-
-    def _chain_call(
-        self,
-        execute_fn: Callable[[MiddlewareContext], Any],
-        context: MiddlewareContext,
-    ) -> Any:
-        """Compose the middleware ``execute`` chain around *execute_fn*."""
-        middleware = self._middleware
-
-        def call(index: int) -> Any:
-            if index >= len(middleware):
-                # Read the request from the context so that before_request
-                # hooks that return a *new* request object take effect.
-                return execute_fn(context)
-            return middleware[index].execute(lambda: call(index + 1), context)
-
-        return call(0)
 
     def _run_pipeline(
         self,
@@ -188,26 +168,8 @@ class UniversalAI:
         request: Any,
         execute_fn: Callable[[MiddlewareContext], Any],
     ) -> Any:
-        """Run before -> execute -> after around a non-streaming callable."""
-        context = MiddlewareContext(
-            operation=operation,
-            provider=provider,
-            model=model,
-            request=request,
-        )
-        for mw in self._middleware:
-            request = mw.before_request(request, context)
-            context.request = request
-        try:
-            response = self._chain_call(execute_fn, context)
-        except Exception as error:  # middleware boundary
-            context.error = error
-            for mw in reversed(self._middleware):
-                mw.on_error(error, context)
-            raise
-        for mw in reversed(self._middleware):
-            response = mw.after_response(response, context)
-        return response
+        """Run before -> execute -> after around a non-streaming callable (Module 1.4.1)."""
+        return self._engine.run(operation, provider, model, request, execute_fn)
 
     def _run_stream_pipeline(
         self,
@@ -217,44 +179,8 @@ class UniversalAI:
         request: Any,
         stream_fn: Callable[[MiddlewareContext], Any],
     ) -> Any:
-        """Run before -> execute around a streaming callable; after on finish."""
-        context = MiddlewareContext(
-            operation=operation,
-            provider=provider,
-            model=model,
-            request=request,
-        )
-        for mw in self._middleware:
-            request = mw.before_request(request, context)
-            context.request = request
-        generator = self._chain_call(stream_fn, context)
-        return self._wrap_stream(generator, context)
-
-    def _wrap_stream(self, generator: Iterator[Any], context: MiddlewareContext) -> Iterator[Any]:
-        """
-        Wrap a stream generator so middleware hooks always run.
-
-        ``after_response`` runs on clean completion (even for an empty
-        stream, with ``None``); ``on_error`` runs on failure and
-        ``after_response`` is skipped so the error status recorded by
-        ``on_error`` is not overwritten.
-        """
-        last: Any = None
-        failed = False
-        try:
-            for chunk in generator:
-                last = chunk
-                yield chunk
-        except Exception as error:  # middleware boundary
-            failed = True
-            context.error = error
-            for mw in reversed(self._middleware):
-                mw.on_error(error, context)
-            raise
-        finally:
-            if not failed:
-                for mw in reversed(self._middleware):
-                    last = mw.after_response(last, context)
+        """Run before -> execute around a streaming callable; after on finish (Module 1.4.1)."""
+        return self._engine.run_stream(operation, provider, model, request, stream_fn)
 
     def _get_adapter(self, provider_lower: str) -> BaseProviderAdapter:
         """Return the adapter instance for a provider, creating it lazily."""
