@@ -185,15 +185,24 @@ for span in recorder.spans:
     print(span.operation, span.duration_ms, span.status)
 ```
 
-Each call produces a `Span` with OpenTelemetry-style GenAI attributes:
+Each call produces a `Span` with OpenTelemetry-style GenAI attributes
+(Module 1.5.2):
 
-- `gen_ai.operation.name`, `gen_ai.request.model`,
-  `gen_ai.request.temperature`, `gen_ai.request.max_tokens`
-- `gen_ai.response.model`, `gen_ai.response.finish_reasons`
-- `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`
+- `gen_ai.operation.name`, `gen_ai.provider.name`,
+  `gen_ai.request.model`, `gen_ai.request.temperature`,
+  `gen_ai.request.top_p`, `gen_ai.request.max_tokens`,
+  `gen_ai.request.stop`, `gen_ai.request.tools`
+- `gen_ai.response.model` (the model that actually served the response),
+  `gen_ai.response.id`, `gen_ai.response.finish_reasons`
+- `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`,
+  `gen_ai.usage.cache_read_input_tokens`,
+  `gen_ai.usage.cache_creation_input_tokens`
 
-If the `opentelemetry` packages are installed, pass `use_otel=True` to also
-export the attributes onto the current OpenTelemetry span.
+If the `opentelemetry` packages are installed, pass `use_otel=True` and
+each invocation additionally creates a **discrete distributed span**
+(kind `CLIENT`) on the `uai-sdk` tracer — not just attributes on the
+current span — so every SDK call appears as its own node in your trace.
+A custom `tracer` can be injected instead of the installed packages.
 
 ## Writing Custom Middleware
 

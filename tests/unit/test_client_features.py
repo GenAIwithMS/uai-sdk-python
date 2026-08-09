@@ -64,6 +64,45 @@ class TestEmbedRouting:
         client.embed("single text", model="text-embedding-v4")
         assert captured["body"]["input"] == ["single text"]
 
+    def test_chat_normalizes_dict_tools_in_request_body(self, monkeypatch):
+        # Tools passed as raw dicts are normalized to ToolDefinition before
+        # the request body is built (regression: dicts crashed model_dump).
+        captured: dict = {}
+
+        def fake_post(url, headers=None, json=None, timeout=None):
+            captured["tools"] = json.get("tools")
+
+            class FakeResponse:
+                def raise_for_status(self):
+                    return None
+
+                def json(self):
+                    return {
+                        "id": "id-1",
+                        "choices": [{"message": {"content": "ok"}}],
+                        "usage": {},
+                    }
+
+            return FakeResponse()
+
+        client = UniversalAI(api_key="k", provider="deepseek")
+        monkeypatch.setattr(client_module.httpx, "post", fake_post)
+        client.chat(
+            messages=[{"role": "user", "content": "Hi"}],
+            tools=[{"type": "function", "function": {"name": "get_weather"}}],
+        )
+        # The dict is normalized to a ToolDefinition, gaining the default
+        # empty parameters schema.
+        assert captured["tools"] == [
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_weather",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+
     def test_embed_raises_when_capability_missing(self, monkeypatch):
         monkeypatch.setattr(client_module.httpx, "post", lambda *a, **k: None)
         client = UniversalAI(api_key="k", provider="qwen")

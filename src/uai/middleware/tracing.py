@@ -1,19 +1,31 @@
 """
-Tracing middleware.
+Tracing middleware (Module 1.5.2).
 
-Records one span per SDK operation with OpenTelemetry-compatible
-"GenAI" semantic attributes:
+Every LLM invocation generates a **discrete span** annotated with
+OpenTelemetry "GenAI" semantic attributes:
 
 - ``gen_ai.operation.name`` (``chat`` / ``embed`` / ``rerank``)
-- ``gen_ai.request.model``, ``gen_ai.request.temperature``,
-  ``gen_ai.request.max_tokens``
-- ``gen_ai.response.model``, ``gen_ai.response.finish_reasons``
-- ``gen_ai.usage.input_tokens``, ``gen_ai.usage.output_tokens``
+- ``gen_ai.provider.name``, ``gen_ai.request.model``,
+  ``gen_ai.request.temperature``, ``gen_ai.request.top_p``,
+  ``gen_ai.request.max_tokens``, ``gen_ai.request.stop``,
+  ``gen_ai.request.tools``
+- ``gen_ai.response.model`` — the actual model that served the response,
+  which may differ from the requested model (providers often route to
+  date-stamped or fine-tuned variants)
+- ``gen_ai.response.id``, ``gen_ai.response.finish_reasons``
+- ``gen_ai.usage.input_tokens``, ``gen_ai.usage.output_tokens``,
+  ``gen_ai.usage.cache_read_input_tokens``,
+  ``gen_ai.usage.cache_creation_input_tokens``
 
-Spans are collected in-process by a :class:`SpanRecorder` (inspect via
-``recorder.spans``). If the ``opentelemetry`` packages are installed and
-``use_otel=True`` is passed, attributes are also exported onto the current
-OpenTelemetry span.
+Spans are always collected in-process by a :class:`SpanRecorder` (inspect
+via ``recorder.spans``). When ``use_otel=True`` and the ``opentelemetry``
+packages are installed, each invocation additionally creates a **discrete
+distributed span** (kind ``CLIENT``) on the ``uai-sdk`` tracer — not just
+attributes copied onto whatever span happens to be current — so the SDK
+call appears as its own node in a distributed trace.
+
+A ``tracer`` may be injected for testing or to use a custom tracer
+without installing the opentelemetry packages.
 """
 
 from __future__ import annotations
@@ -26,6 +38,10 @@ from typing import Any
 from uai.middleware.base import BaseMiddleware, MiddlewareContext
 
 logger = logging.getLogger(__name__)
+
+_OTEL_TRACER_NAME = "uai-sdk"
+# Mirrors ``uai.__version__``; kept local to avoid a circular import.
+_SDK_VERSION = "0.1.0"
 
 try:  # pragma: no cover - optional dependency
     import opentelemetry  # noqa: F401
@@ -89,13 +105,17 @@ class SpanRecorder:
 
 class TracingMiddleware(BaseMiddleware):
     """
-    Record a span per operation with GenAI semantic attributes.
+    Record a discrete span per operation with GenAI semantic attributes.
 
     Args:
         recorder: Optional :class:`SpanRecorder` (a new one is created).
         service_name: Service name reported with each span (default ``uai``).
-        use_otel: Also export attributes onto the current OpenTelemetry
-            span (requires the ``opentelemetry`` packages to be installed).
+        use_otel: Also create a discrete OpenTelemetry span per invocation
+            (requires the ``opentelemetry`` packages, or an injected
+            ``tracer``).
+        tracer: Optional OpenTelemetry-compatible tracer. When provided,
+            it is used instead of resolving the ``uai-sdk`` tracer from
+            the installed ``opentelemetry`` packages (mainly for tests).
     """
 
     name = "tracing"
@@ -105,33 +125,90 @@ class TracingMiddleware(BaseMiddleware):
         recorder: SpanRecorder | None = None,
         service_name: str = "uai",
         use_otel: bool = False,
+        tracer: Any = None,
     ) -> None:
         self.recorder = recorder or SpanRecorder()
         self.service_name = service_name
-        if use_otel and not _OTEL_AVAILABLE:
+        self._tracer = tracer
+        self.use_otel = use_otel and (tracer is not None or _OTEL_AVAILABLE)
+        if use_otel and not self.use_otel:
             logger.warning(
                 "[uai] TracingMiddleware(use_otel=True) but opentelemetry is not "
-                "installed; recording spans in-process only."
+                "installed and no tracer was injected; recording spans in-process only."
             )
-        self.use_otel = use_otel and _OTEL_AVAILABLE
+
+    # -- Span lifecycle -----------------------------------------------------
+
+    def _new_span(self, context: MiddlewareContext) -> Span:
+        return Span(
+            name=f"{context.operation}",
+            operation=context.operation,
+            provider=context.provider,
+            model=context.model,
+        )
+
+    def _start_otel_span(self, span: Span) -> Any | None:
+        """Create a discrete OpenTelemetry span, or None when disabled/failing."""
+        if not self.use_otel:
+            return None
+        try:
+            if self._tracer is not None:
+                # Injected tracers choose their own kind (a real OTel tracer
+                # expects the SpanKind enum, not our string sentinel).
+                return self._tracer.start_span(span.name, attributes=dict(span.attributes))
+            from opentelemetry import trace as otel_trace
+
+            tracer = otel_trace.get_tracer(_OTEL_TRACER_NAME, _SDK_VERSION)
+            return tracer.start_span(
+                span.name,
+                kind=otel_trace.SpanKind.CLIENT,
+                attributes=dict(span.attributes),
+            )
+        except Exception:
+            logger.debug("[uai] OpenTelemetry span creation skipped", exc_info=True)
+            return None
+
+    def _finish_otel_span(self, span: Span, otel_span: Any | None) -> None:
+        """Copy attributes onto and close the OpenTelemetry span."""
+        if otel_span is None:
+            return
+        try:
+            for key, value in span.attributes.items():
+                otel_span.set_attribute(key, value)
+            if span.status == "error":
+                otel_span.record_exception(Exception(span.error or "uai error"))
+            if self._tracer is None:
+                from opentelemetry import trace as otel_trace
+
+                otel_span.set_status(
+                    otel_trace.Status(
+                        otel_trace.StatusCode.ERROR
+                        if span.status == "error"
+                        else otel_trace.StatusCode.OK,
+                        str(span.error or "") if span.status == "error" else "",
+                    )
+                )
+            else:
+                # Injected tracers receive a simple status string; real OTel
+                # tracers get a proper Status object above.
+                otel_span.set_status("error" if span.status == "error" else "ok")
+            otel_span.end()
+        except Exception:
+            logger.debug("[uai] OpenTelemetry span finish skipped", exc_info=True)
+
+    # -- Pipeline hooks -----------------------------------------------------
 
     def before_request(
         self,
         request: Any,
         context: MiddlewareContext,
     ) -> Any:
-        """Start a span for this operation."""
-        span = self.recorder.start(
-            Span(
-                name=f"{context.operation}",
-                operation=context.operation,
-                provider=context.provider,
-                model=context.model,
-            )
-        )
+        """Start a span for this operation and populate request attributes."""
+        span = self._new_span(context)
         span.set_attribute("gen_ai.operation.name", context.operation)
         span.set_attribute("uai.service.name", self.service_name)
         if context.provider:
+            span.set_attribute("gen_ai.provider.name", context.provider)
             span.set_attribute("uai.request.provider", context.provider)
         if context.model:
             span.set_attribute("gen_ai.request.model", context.model)
@@ -140,8 +217,32 @@ class TracingMiddleware(BaseMiddleware):
                 span.set_attribute("gen_ai.request.temperature", request.temperature)
             if request.max_tokens is not None:
                 span.set_attribute("gen_ai.request.max_tokens", request.max_tokens)
+            if request.top_p is not None:
+                span.set_attribute("gen_ai.request.top_p", request.top_p)
+            if request.stop:
+                stop = request.stop if isinstance(request.stop, list) else [request.stop]
+                span.set_attribute("gen_ai.request.stop", stop)
+            if request.tools:
+                # Tools may be ToolDefinition models or raw dicts (the
+                # client assigns dicts post-construction) — handle both.
+                names: list[str] = []
+                for tool in request.tools:
+                    function = getattr(tool, "function", None)
+                    if isinstance(function, dict):
+                        name = function.get("name", "")
+                    elif function is not None:
+                        name = getattr(function, "name", "")
+                    elif isinstance(tool, dict):
+                        name = tool.get("function", {}).get("name", "")
+                    else:
+                        name = getattr(tool, "name", "")
+                    if name:
+                        names.append(name)
+                span.set_attribute("gen_ai.request.tools", names)
             span.set_attribute("gen_ai.request.stream", request.stream)
+        self.recorder.start(span)
         context.span = span
+        context.otel_span = self._start_otel_span(span)
         return request
 
     def after_response(
@@ -158,6 +259,9 @@ class TracingMiddleware(BaseMiddleware):
             model = getattr(response, "model", None)
             if model:
                 span.set_attribute("gen_ai.response.model", str(model))
+            response_id = getattr(response, "id", None)
+            if response_id:
+                span.set_attribute("gen_ai.response.id", str(response_id))
             finish_reason = getattr(response, "finish_reason", None)
             if finish_reason is not None:
                 value = finish_reason.value if hasattr(finish_reason, "value") else finish_reason
@@ -166,6 +270,14 @@ class TracingMiddleware(BaseMiddleware):
             if usage is not None:
                 span.set_attribute("gen_ai.usage.input_tokens", usage.input_tokens)
                 span.set_attribute("gen_ai.usage.output_tokens", usage.output_tokens)
+                if usage.cache_read_tokens is not None:
+                    span.set_attribute(
+                        "gen_ai.usage.cache_read_input_tokens", usage.cache_read_tokens
+                    )
+                if usage.cache_write_tokens is not None:
+                    span.set_attribute(
+                        "gen_ai.usage.cache_creation_input_tokens", usage.cache_write_tokens
+                    )
 
         span.set_attribute("uai.cache_hit", context.cache_hit)
         span.finish()
@@ -177,7 +289,7 @@ class TracingMiddleware(BaseMiddleware):
             span.duration_ms,
             span.status,
         )
-        self._export_otel(span)
+        self._finish_otel_span(span, context.otel_span)
         return response
 
     def on_error(self, error: BaseException, context: MiddlewareContext) -> None:
@@ -187,20 +299,7 @@ class TracingMiddleware(BaseMiddleware):
             return
         span.set_attribute("uai.error", str(error))
         span.finish(status="error", error=str(error))
-        self._export_otel(span)
+        self._finish_otel_span(span, context.otel_span)
 
-    def _export_otel(self, span: Span) -> None:  # pragma: no cover - optional dep
-        """Copy span attributes onto the current OpenTelemetry span, if enabled."""
-        if not self.use_otel:
-            return
-        try:
-            from opentelemetry import trace as otel_trace
 
-            otel_span = otel_trace.get_current_span()
-            if otel_span.is_recording():
-                for key, value in span.attributes.items():
-                    otel_span.set_attribute(key, value)
-                if span.status == "error":
-                    otel_span.record_exception(Exception(span.error or "uai error"))
-        except Exception:
-            logger.debug("[uai] OpenTelemetry export skipped", exc_info=True)
+__all__ = ["Span", "SpanRecorder", "TracingMiddleware"]

@@ -50,17 +50,22 @@ Share one `MetricsRegistry` across clients to aggregate globally. Register
 ## Tracing
 
 Each LLM invocation generates a span annotated with GenAI semantic
-attributes via `TracingMiddleware` (see [middleware.md](middleware.md)):
+attributes via `TracingMiddleware` (see [middleware.md](middleware.md),
+Module 1.5.2):
 
 | Attribute | Example |
 |-----------|---------|
 | `gen_ai.operation.name` | `chat` |
+| `gen_ai.provider.name` | `deepseek` |
 | `gen_ai.request.model` | `deepseek-chat` |
-| `gen_ai.response.model` | `deepseek-chat` |
+| `gen_ai.response.model` | `deepseek-chat` (may differ from requested) |
 | `gen_ai.request.temperature` | `0.7` |
 | `gen_ai.request.max_tokens` | `1024` |
+| `gen_ai.response.id` | `cmpl-abc123` |
 | `gen_ai.response.finish_reasons` | `["stop"]` |
 
-Spans are recorded in-process by `SpanRecorder` (`recorder.spans`); if the
-`opentelemetry` packages are installed, pass `use_otel=True` to also export
-attributes onto the current OpenTelemetry span.
+Spans are recorded in-process by `SpanRecorder` (`recorder.spans`). With
+`use_otel=True` (and the `opentelemetry` packages installed, or an
+injected `tracer`), each invocation additionally creates a **discrete
+distributed span** (kind `CLIENT`) on the `uai-sdk` tracer, so SDK calls
+appear as their own nodes in a distributed trace.

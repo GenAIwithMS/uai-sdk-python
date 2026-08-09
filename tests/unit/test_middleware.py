@@ -502,6 +502,117 @@ class TestTracingMiddleware:
         assert span.status == "error"
         assert "boom" in span.error
 
+    def test_records_new_genai_attributes(self):
+        recorder = SpanRecorder()
+        mw = TracingMiddleware(recorder=recorder)
+        req = make_request(temperature=0.7, max_tokens=50, top_p=0.9, stop=["END"])
+        req.tools = [
+            {"type": "function", "function": {"name": "get_weather"}},
+            {"type": "function", "function": {"name": "get_time"}},
+        ]
+        ctx = MiddlewareContext(
+            operation="chat", provider="deepseek", model="deepseek-chat", request=req
+        )
+        mw.before_request(req, ctx)
+        resp = UnifiedResponse(
+            id="resp-42",
+            content="hi",
+            model="deepseek-chat",
+            finish_reason=FinishReason.STOP,
+            usage=UsageMetrics(
+                input_tokens=5,
+                output_tokens=3,
+                cache_read_tokens=10,
+                cache_write_tokens=20,
+            ),
+        )
+        mw.after_response(resp, ctx)
+
+        span = recorder.spans[0]
+        assert span.attributes["gen_ai.provider.name"] == "deepseek"
+        assert span.attributes["gen_ai.request.top_p"] == 0.9
+        assert span.attributes["gen_ai.request.stop"] == ["END"]
+        assert span.attributes["gen_ai.request.tools"] == ["get_weather", "get_time"]
+        assert span.attributes["gen_ai.response.id"] == "resp-42"
+        assert span.attributes["gen_ai.usage.cache_read_input_tokens"] == 10
+        assert span.attributes["gen_ai.usage.cache_creation_input_tokens"] == 20
+
+    def _make_fake_otel(self):
+        class FakeOtelSpan:
+            def __init__(self, name, attributes):
+                self.name = name
+                self.attributes = dict(attributes)
+                self.ended = False
+                self.status = None
+                self.exception = None
+
+            def set_attribute(self, key, value):
+                self.attributes[key] = value
+
+            def set_status(self, status):
+                self.status = status
+
+            def record_exception(self, exc):
+                self.exception = exc
+
+            def end(self):
+                self.ended = True
+
+        class FakeTracer:
+            def __init__(self):
+                self.spans = []
+
+            def start_span(self, name, attributes=None, **kwargs):
+                span = FakeOtelSpan(name, attributes or {})
+                self.spans.append(span)
+                return span
+
+        return FakeTracer()
+
+    def test_use_otel_creates_discrete_span(self):
+        tracer = self._make_fake_otel()
+        recorder = SpanRecorder()
+        mw = TracingMiddleware(recorder=recorder, use_otel=True, tracer=tracer)
+        req = make_request(temperature=0.5)
+        ctx = MiddlewareContext(
+            operation="chat", provider="deepseek", model="deepseek-chat", request=req
+        )
+        mw.before_request(req, ctx)
+        resp = UnifiedResponse(
+            content="hi",
+            model="deepseek-chat",
+            finish_reason=FinishReason.STOP,
+            usage=UsageMetrics(input_tokens=5, output_tokens=3),
+        )
+        mw.after_response(resp, ctx)
+
+        # The in-process span is recorded as before...
+        assert len(recorder.spans) == 1
+        # ...and a discrete OpenTelemetry span was created, decorated, closed.
+        assert len(tracer.spans) == 1
+        otel_span = tracer.spans[0]
+        assert otel_span.name == "chat"
+        assert otel_span.attributes["gen_ai.operation.name"] == "chat"
+        assert otel_span.attributes["gen_ai.request.temperature"] == 0.5
+        assert otel_span.attributes["gen_ai.response.model"] == "deepseek-chat"
+        assert otel_span.status == "ok"
+        assert otel_span.ended is True
+
+    def test_use_otel_error_records_exception_and_status(self):
+        tracer = self._make_fake_otel()
+        mw = TracingMiddleware(use_otel=True, tracer=tracer)
+        ctx = MiddlewareContext(
+            operation="chat", provider="deepseek", model="deepseek-chat", request=make_request()
+        )
+        mw.before_request(make_request(), ctx)
+        mw.on_error(UAINetworkError("boom"), ctx)
+
+        otel_span = tracer.spans[0]
+        assert otel_span.ended is True
+        assert otel_span.exception is not None
+        assert "boom" in str(otel_span.exception)
+        assert otel_span.status == "error"
+
 
 class TestMiddlewareHalt:
     """Module 1.4.1 — middleware can halt the execution flow entirely."""

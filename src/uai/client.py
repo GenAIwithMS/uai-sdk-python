@@ -46,6 +46,7 @@ from uai.models import (
     ImageContent,
     RerankResponse,
     StreamChunk,
+    ToolDefinition,
     UnifiedRequest,
     UnifiedResponse,
     UsageMetrics,
@@ -308,9 +309,11 @@ class UniversalAI:
             stream=stream,
         )
 
-        # Apply tools if provided
+        # Apply tools if provided — normalize dicts to ToolDefinition so the
+        # request model stays consistent (the constructor validator does this
+        # on construction, but tools are assigned after it).
         if tools is not None:
-            request.tools = tools
+            request.tools = [ToolDefinition(**t) if isinstance(t, dict) else t for t in tools]
         if output_schema is not None:
             request.output_schema = output_schema
 

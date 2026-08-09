@@ -45,7 +45,9 @@ class MiddlewareContext:
         cache_hit: Whether a cache middleware served the response.
         halted: Whether a middleware halted the flow (Module 1.4.1).
         error: The error raised by the chain, if any.
-        span: Reserved for tracing middleware (e.g. a ``Span`` object).
+        span: Reserved for tracing middleware (in-process ``Span``).
+        otel_span: Reserved for tracing middleware (OpenTelemetry span
+            object, Module 1.5.2).
     """
 
     operation: str
@@ -59,6 +61,7 @@ class MiddlewareContext:
     halted: bool = False
     error: BaseException | None = None
     span: Any = None
+    otel_span: Any = None
 
     @property
     def elapsed_ms(self) -> float:
