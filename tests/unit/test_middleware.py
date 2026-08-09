@@ -8,10 +8,17 @@ import time
 import pytest
 
 import uai.client as client_module
+import uai.middleware.circuit_breaker as circuit_breaker_module
 from uai import UniversalAI
-from uai.exceptions import UAIError, UAINetworkError, UAIRateLimitError
+from uai.exceptions import (
+    UAICircuitOpenError,
+    UAIError,
+    UAINetworkError,
+    UAIRateLimitError,
+)
 from uai.middleware import (
     CacheMiddleware,
+    CircuitBreakerMiddleware,
     LoggingMiddleware,
     MiddlewareEngine,
     MiddlewareHalt,
@@ -672,3 +679,264 @@ class TestMiddlewareHalt:
         monkeypatch.setattr(client_module.httpx, "post", boom)
         result = client.chat(messages=[{"role": "user", "content": "Hi"}])
         assert result.content == "cached-fallback"
+
+
+class TestCircuitBreakerMiddleware:
+    """Module 1.4.2 — fast-fail a degraded provider until it recovers."""
+
+    def _ctx(self, provider="deepseek", model="deepseek-chat"):
+        return MiddlewareContext(
+            operation="chat", provider=provider, model=model, request=make_request()
+        )
+
+    def test_counts_failures_below_threshold(self):
+        cb = CircuitBreakerMiddleware(failure_threshold=3, reset_timeout=30)
+        ctx = self._ctx()
+
+        def fail():
+            raise UAINetworkError("boom")
+
+        with pytest.raises(UAINetworkError):
+            cb.execute(fail, ctx)
+        with pytest.raises(UAINetworkError):
+            cb.execute(fail, ctx)
+        assert cb.state("deepseek", "deepseek-chat") == "closed"
+        assert cb.failures("deepseek", "deepseek-chat") == 2
+
+        # A success resets the counter.
+        assert cb.execute(lambda: "ok", ctx) == "ok"
+        assert cb.failures("deepseek", "deepseek-chat") == 0
+
+    def test_opens_after_threshold_and_rejects_without_network(self):
+        cb = CircuitBreakerMiddleware(failure_threshold=2, reset_timeout=30)
+        ctx = self._ctx()
+
+        def fail():
+            raise UAINetworkError("boom")
+
+        with pytest.raises(UAINetworkError):
+            cb.execute(fail, ctx)
+        with pytest.raises(UAINetworkError):
+            cb.execute(fail, ctx)
+        assert cb.state("deepseek", "deepseek-chat") == "open"
+
+        calls = {"n": 0}
+
+        def never():
+            calls["n"] += 1
+            return "ok"
+
+        with pytest.raises(UAICircuitOpenError):
+            cb.execute(never, ctx)
+        assert calls["n"] == 0  # call_next never invoked while open
+
+    def test_half_open_probe_success_closes_circuit(self, monkeypatch):
+        clock = {"now": 1000.0}
+        monkeypatch.setattr(circuit_breaker_module.time, "monotonic", lambda: clock["now"])
+
+        cb = CircuitBreakerMiddleware(failure_threshold=1, reset_timeout=30)
+        ctx = self._ctx()
+
+        def fail():
+            raise UAINetworkError("boom")
+
+        with pytest.raises(UAINetworkError):
+            cb.execute(fail, ctx)  # opens the circuit
+        assert cb.state("deepseek", "deepseek-chat") == "open"
+
+        # After reset_timeout elapses the circuit is half-open: one probe allowed.
+        clock["now"] += 31.0
+        assert cb.state("deepseek", "deepseek-chat") == "half_open"
+        assert cb.execute(lambda: "ok", ctx) == "ok"  # probe succeeds
+        assert cb.state("deepseek", "deepseek-chat") == "closed"
+
+    def test_half_open_probe_failure_reopens(self, monkeypatch):
+        clock = {"now": 1000.0}
+        monkeypatch.setattr(circuit_breaker_module.time, "monotonic", lambda: clock["now"])
+
+        cb = CircuitBreakerMiddleware(failure_threshold=1, reset_timeout=30)
+        ctx = self._ctx()
+
+        def fail():
+            raise UAINetworkError("boom")
+
+        with pytest.raises(UAINetworkError):
+            cb.execute(fail, ctx)  # opens
+        clock["now"] += 31.0  # half-open
+        with pytest.raises(UAINetworkError):
+            cb.execute(fail, ctx)  # probe fails -> reopened
+        assert cb.state("deepseek", "deepseek-chat") == "open"
+        assert cb.failures("deepseek", "deepseek-chat") == 0  # probe failures don't accumulate
+
+    def test_fallback_response_halts_when_open(self):
+        cb = CircuitBreakerMiddleware(
+            failure_threshold=1,
+            reset_timeout=30,
+            fallback_response=UnifiedResponse(
+                content="fallback", model="deepseek-chat", finish_reason=FinishReason.STOP
+            ),
+        )
+        engine = MiddlewareEngine()
+        engine.use(cb)
+
+        def failing_execute(ctx):
+            raise UAINetworkError("boom")
+
+        with pytest.raises(UAINetworkError):
+            engine.run("chat", "deepseek", "deepseek-chat", make_request(), failing_execute)
+
+        # Circuit open -> request is halted with the fallback response, no error.
+        events: list = []
+
+        class Recorder(BaseMiddleware):
+            def after_response(self, response, context):
+                events.append(response)
+                return response
+
+        engine.use(Recorder())
+        result = engine.run(
+            "chat", "deepseek", "deepseek-chat", make_request(), lambda ctx: "never"
+        )
+        assert result.content == "fallback"
+        assert events == [result]
+
+    def test_per_key_isolation(self):
+        cb = CircuitBreakerMiddleware(failure_threshold=1, reset_timeout=30)
+
+        def fail():
+            raise UAINetworkError("boom")
+
+        ctx_deepseek = self._ctx("deepseek", "deepseek-chat")
+        with pytest.raises(UAINetworkError):
+            cb.execute(fail, ctx_deepseek)
+        assert cb.state("deepseek", "deepseek-chat") == "open"
+
+        # A different provider/model is unaffected.
+        ctx_qwen = self._ctx("qwen", "qwen-plus")
+        assert cb.state("qwen", "qwen-plus") == "closed"
+        assert cb.execute(lambda: "ok", ctx_qwen) == "ok"
+
+    def test_open_error_not_retried_by_retry_middleware(self):
+        engine = MiddlewareEngine()
+        engine.use(RetryMiddleware(max_retries=3, base_delay=0.001, jitter=False))
+        engine.use(CircuitBreakerMiddleware(failure_threshold=1, reset_timeout=30))
+        attempts = {"n": 0}
+
+        def failing_execute(ctx):
+            attempts["n"] += 1
+            raise UAINetworkError("boom")
+
+        with pytest.raises(UAICircuitOpenError):
+            engine.run("chat", "deepseek", "deepseek-chat", make_request(), failing_execute)
+        assert attempts["n"] == 1  # first call opens the circuit; retries are rejected fast
+
+    def test_reset_closes_circuit(self):
+        cb = CircuitBreakerMiddleware(failure_threshold=1, reset_timeout=30)
+        ctx = self._ctx()
+
+        def fail():
+            raise UAINetworkError("boom")
+
+        with pytest.raises(UAINetworkError):
+            cb.execute(fail, ctx)
+        assert cb.state("deepseek", "deepseek-chat") == "open"
+
+        cb.reset("deepseek", "deepseek-chat")
+        assert cb.state("deepseek", "deepseek-chat") == "closed"
+        assert cb.execute(lambda: "ok", ctx) == "ok"
+
+    def test_reset_provider_only_resets_all_models(self):
+        cb = CircuitBreakerMiddleware(failure_threshold=1, reset_timeout=30)
+
+        def fail():
+            raise UAINetworkError("boom")
+
+        with pytest.raises(UAINetworkError):
+            cb.execute(fail, self._ctx("deepseek", "deepseek-chat"))
+        with pytest.raises(UAINetworkError):
+            cb.execute(fail, self._ctx("deepseek", "deepseek-reasoner"))
+        with pytest.raises(UAINetworkError):
+            cb.execute(fail, self._ctx("qwen", "qwen-plus"))
+
+        cb.reset(provider="deepseek")
+        assert cb.state("deepseek", "deepseek-chat") == "closed"
+        assert cb.state("deepseek", "deepseek-reasoner") == "closed"
+        assert cb.state("qwen", "qwen-plus") == "open"  # untouched
+
+    def test_streaming_failure_before_first_chunk_trips_breaker(self):
+        cb = CircuitBreakerMiddleware(failure_threshold=1, reset_timeout=30)
+        ctx = self._ctx()
+        ctx.request = make_request(stream=True)
+
+        def failing_stream():
+            def gen():
+                raise UAINetworkError("boom before first chunk")
+                yield  # pragma: no cover
+
+            return gen()
+
+        with pytest.raises(UAINetworkError):
+            cb.execute(failing_stream, ctx)
+        assert cb.state("deepseek", "deepseek-chat") == "open"
+
+    def test_streaming_success_counts_success(self):
+        cb = CircuitBreakerMiddleware(failure_threshold=3, reset_timeout=30)
+        ctx = self._ctx()
+        ctx.request = make_request(stream=True)
+
+        def ok_stream():
+            def gen():
+                yield {"content": "a"}
+                yield {"content": "b"}
+
+            return gen()
+
+        result = list(cb.execute(ok_stream, ctx))
+        assert [c["content"] for c in result] == ["a", "b"]
+        assert cb.state("deepseek", "deepseek-chat") == "closed"
+        assert cb.failures("deepseek", "deepseek-chat") == 0
+
+    def test_mid_stream_failure_not_observed(self):
+        # Matches RetryMiddleware's pre-first-chunk boundary: once the first
+        # chunk is delivered, later failures are the caller's concern.
+        cb = CircuitBreakerMiddleware(failure_threshold=1, reset_timeout=30)
+        ctx = self._ctx()
+        ctx.request = make_request(stream=True)
+
+        def mid_stream_fail():
+            def gen():
+                yield {"content": "a"}
+                raise UAINetworkError("mid-stream")
+
+            return gen()
+
+        out = cb.execute(mid_stream_fail, ctx)
+        assert next(out)["content"] == "a"
+        with pytest.raises(UAINetworkError):
+            next(out)
+        assert cb.state("deepseek", "deepseek-chat") == "closed"
+        assert cb.failures("deepseek", "deepseek-chat") == 0
+
+    def test_breaker_through_client_chat(self, monkeypatch):
+        calls = {"n": 0}
+
+        def flaky_post(url, headers=None, json=None, timeout=None):
+            calls["n"] += 1
+            if calls["n"] <= 2:
+                raise client_module.httpx.TransportError("boom")
+            return fake_http_post()(url, headers=headers, json=json, timeout=timeout)
+
+        client = UniversalAI(api_key="k", provider="deepseek")
+        client.use(CircuitBreakerMiddleware(failure_threshold=2, reset_timeout=30))
+        monkeypatch.setattr(client_module.httpx, "post", flaky_post)
+
+        with pytest.raises(UAINetworkError):
+            client.chat(messages=[{"role": "user", "content": "Hi"}])
+        with pytest.raises(UAINetworkError):
+            client.chat(messages=[{"role": "user", "content": "Hi"}])
+
+        # Circuit open: the third call is rejected without hitting the network.
+        calls["n"] = 0
+        with pytest.raises(UAICircuitOpenError):
+            client.chat(messages=[{"role": "user", "content": "Hi"}])
+        assert calls["n"] == 0

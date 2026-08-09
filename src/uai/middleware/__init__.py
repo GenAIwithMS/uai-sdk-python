@@ -17,6 +17,7 @@ Register them on a client with ``client.use(...)``:
 
 from uai.middleware.base import BaseMiddleware, MiddlewareContext
 from uai.middleware.cache import CacheMiddleware
+from uai.middleware.circuit_breaker import CircuitBreakerMiddleware
 from uai.middleware.engine import MiddlewareEngine, MiddlewareHalt
 from uai.middleware.logging import LoggingMiddleware
 from uai.middleware.retry import RetryMiddleware
@@ -25,6 +26,7 @@ from uai.middleware.tracing import Span, SpanRecorder, TracingMiddleware
 __all__ = [
     "BaseMiddleware",
     "CacheMiddleware",
+    "CircuitBreakerMiddleware",
     "LoggingMiddleware",
     "MiddlewareContext",
     "MiddlewareEngine",

@@ -29,7 +29,7 @@ This is the central documentation hub for the **Universal AI Provider SDK (uai-s
 
 ## Developer Guide
 
-- [Middleware](middleware.md) — Creating and composing interceptors (Cache, Retry, Logging, Tracing)
+- [Middleware](middleware.md) — Creating and composing interceptors (Cache, Retry, Circuit Breaker, Logging, Tracing)
 - [Benchmark](benchmark.md) — Offline benchmarking CLI covering all models
 - [Telemetry](telemetry.md) — OpenTelemetry integration, Prometheus metric conventions (roadmap)
 - [PDK](pdk.md) — Provider Development Kit: adding a new provider adapter

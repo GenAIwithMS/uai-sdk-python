@@ -92,5 +92,14 @@ class UAITimeoutError(UAIError):
     """Raised when a request exceeds its configured timeout."""
 
 
+class UAICircuitOpenError(UAIError):
+    """
+    Raised when a circuit breaker rejects a request while its circuit is open.
+
+    Indicates the provider has sustained repeated failures and is being
+    fast-failed until the breaker's reset timeout elapses (Module 1.4.2).
+    """
+
+
 class ConfigError(UAIError):
     """Raised when provider configuration cannot be loaded or validated."""

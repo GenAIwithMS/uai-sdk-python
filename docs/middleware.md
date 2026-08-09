@@ -75,6 +75,7 @@ calls can be chained.
 | Middleware | Description |
 |------------|-------------|
 | `RetryMiddleware` | Retries transient failures (429, 5xx, network, timeout) with exponential backoff + jitter |
+| `CircuitBreakerMiddleware` | Fast-fails a degraded provider/model until it recovers (Module 1.4.2) |
 | `CacheMiddleware` | In-memory TTL cache for identical non-streaming requests |
 | `LoggingMiddleware` | Structured request/response/error log lines, correlated by `request_id` |
 | `TracingMiddleware` | Records one span per call with GenAI semantic attributes (in-process recorder, optional OpenTelemetry export) |
@@ -105,6 +106,46 @@ client.use(RetryMiddleware(max_retries=2, retry_on_parsing_error=True))
 
 For streaming, retries only happen if the failure occurs before the first
 chunk is delivered; once streaming has started, errors propagate as-is.
+
+### CircuitBreakerMiddleware
+
+Resiliency complement to retry (Module 1.4.2): detect sustained failures
+for a provider/model pair and **fast-fail** subsequent requests until the
+provider recovers, avoiding wasted network calls and throttling. The
+circuit has three states per (provider, model) key:
+
+- **closed** — normal operation; failures are counted
+- **open** — requests are rejected immediately, no network call
+- **half_open** — after `reset_timeout`, one trial request (probe) is
+  allowed; success closes the circuit, failure reopens it
+
+```python
+from uai.middleware import CircuitBreakerMiddleware, RetryMiddleware
+
+client.use(CircuitBreakerMiddleware(
+    failure_threshold=5,   # consecutive failures before the circuit opens
+    reset_timeout=30.0,    # seconds before a half-open probe is allowed
+    fallback_response=None,  # optional response served while open
+))
+client.use(RetryMiddleware(max_retries=3))
+```
+
+Register the breaker **before** (outside of) `RetryMiddleware` so an open
+circuit short-circuits immediately instead of consuming retries.
+
+While the circuit is open, requests raise `UAICircuitOpenError` — unless
+`fallback_response` is set, in which case that response is served via
+`MiddlewareHalt` (no error, `after_response` still runs). State can be
+inspected and managed programmatically:
+
+```python
+breaker = CircuitBreakerMiddleware(failure_threshold=5)
+client.use(breaker)
+
+breaker.state("deepseek", "deepseek-chat")  # "closed" | "open" | "half_open"
+breaker.failures("deepseek", "deepseek-chat")
+breaker.reset()                              # close everything
+```
 
 ### CacheMiddleware
 
