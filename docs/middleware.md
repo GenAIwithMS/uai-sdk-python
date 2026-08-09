@@ -57,6 +57,13 @@ Retryable failures: `UAIRateLimitError` (429, honors `Retry-After` when
 present), `UAINetworkError`, `UAITimeoutError`, and 5xx server errors.
 Authentication and other 4xx errors are **not** retried.
 
+Structured-output validation failures (`ResponseParsingError`, Module
+1.3.2) are retried only when explicitly enabled:
+
+```python
+client.use(RetryMiddleware(max_retries=2, retry_on_parsing_error=True))
+```
+
 For streaming, retries only happen if the failure occurs before the first
 chunk is delivered; once streaming has started, errors propagate as-is.
 

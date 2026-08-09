@@ -374,6 +374,43 @@ class TestCacheMiddleware:
         assert mw.execute(lambda: "stream", ctx) == "stream"
         assert ctx.cache_hit is False
 
+    def test_output_schema_partitions_cache_key(self):
+        # Two requests with identical messages but different output_schema
+        # classes must NOT share a cache entry (Module 1.3.2).
+        from pydantic import BaseModel
+
+        class SchemaA(BaseModel):
+            a: str
+
+        class SchemaB(BaseModel):
+            b: int
+
+        calls = {"n": 0}
+
+        def call_next():
+            calls["n"] += 1
+            return "ok"
+
+        mw = CacheMiddleware(ttl=60)
+        ctx_a = MiddlewareContext(
+            operation="chat",
+            request=make_request(
+                messages=[{"role": "user", "content": "x"}], output_schema=SchemaA
+            ),
+        )
+        ctx_b = MiddlewareContext(
+            operation="chat",
+            request=make_request(
+                messages=[{"role": "user", "content": "x"}], output_schema=SchemaB
+            ),
+        )
+        mw.execute(call_next, ctx_a)
+        mw.execute(call_next, ctx_b)
+        assert calls["n"] == 2
+        # Same schema twice -> cache hit.
+        mw.execute(call_next, ctx_a)
+        assert calls["n"] == 2
+
     def test_skips_without_request(self):
         mw = CacheMiddleware(ttl=60)
         ctx = MiddlewareContext(operation="embed", request=None)

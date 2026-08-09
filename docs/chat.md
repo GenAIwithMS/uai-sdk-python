@@ -47,7 +47,7 @@ instances). There is no `prompt` convenience parameter — always use
 | `stream` | `bool` | Enable streaming; returns an iterator of `StreamChunk` |
 | `stream_callback` | `Callable[[StreamChunk], None]` | Optional callback invoked for every streamed chunk |
 | `tools` | `list[dict]` / `list[ToolDefinition]` | Function/tool definitions |
-| `output_schema` | `type[BaseModel]` | Pydantic model for structured output validation |
+| `output_schema` | `type[BaseModel]` | Pydantic model for structured output validation; the schema is injected as a system-prompt instruction and the response is validated against it (`result.parsed`) |
 
 Additional `UnifiedRequest` fields (`frequency_penalty`, `presence_penalty`,
 `tool_choice`, `user`, `metadata`) can be passed as keyword arguments.

@@ -51,6 +51,7 @@ from uai.models import (
 )
 from uai.registry import apply_env_overrides, get_provider_config
 from uai.registry.schema import ProviderConfig, ProviderModel
+from uai.structured import build_schema_prompt, parse_structured_output
 
 logger = logging.getLogger(__name__)
 
@@ -705,13 +706,21 @@ class UniversalAI:
             raise UAINetworkError(f"Network error: {e}", provider=provider_lower) from e
 
         data = response.json()
-        return self._parse_chat_response(data, provider_lower, resolved_id, start_time)
+        return self._parse_chat_response(data, provider_lower, resolved_id, start_time, request)
 
     def _build_request_body(self, request: UnifiedRequest, model_id: str) -> dict[str, Any]:
         """Build the request body for the provider API."""
+        messages = [m.model_dump(exclude_none=True) for m in request.messages]
+        if request.output_schema is not None:
+            # Module 1.3.2 — nudge the model toward schema-conforming JSON by
+            # injecting the JSON Schema as a system instruction.
+            messages = [
+                {"role": "system", "content": build_schema_prompt(request.output_schema)},
+                *messages,
+            ]
         body: dict[str, Any] = {
             "model": model_id,
-            "messages": [m.model_dump(exclude_none=True) for m in request.messages],
+            "messages": messages,
         }
 
         if request.max_tokens is not None:
@@ -767,6 +776,20 @@ class UniversalAI:
         first_chunk = True
         finish_reason = None
         seen_ids = set()
+        # Module 1.3.2 — accumulate content deltas so the assembled payload
+        # can be validated against ``output_schema`` when the stream ends.
+        output_schema = request.output_schema
+        content_parts: list[str] = []
+
+        def _finalize_parsed() -> Any:
+            """Validate accumulated content against output_schema, if set."""
+            if output_schema is None or not content_parts:
+                return None
+            return parse_structured_output(
+                "".join(content_parts), output_schema, provider=provider_lower
+            )
+
+        finalized = False
 
         try:
             with httpx.stream(
@@ -792,7 +815,8 @@ class UniversalAI:
                         line_str = line_str[6:]
 
                     if line_str.strip() in ("[DONE]", "data: [DONE]"):
-                        yield StreamChunk(is_final=True)
+                        yield StreamChunk(is_final=True, parsed=_finalize_parsed())
+                        finalized = True
                         break
 
                     if not line_str.strip():
@@ -856,6 +880,9 @@ class UniversalAI:
                             cache_write_tokens=usage_dict.get("cache_creation_input_tokens"),
                         )
 
+                    if content and output_schema is not None:
+                        content_parts.append(content)
+
                     chunk = StreamChunk(
                         content=content if content else None,
                         tool_calls=tool_calls,
@@ -868,6 +895,12 @@ class UniversalAI:
                         ttft_ms=ttft_ms,
                     )
 
+                    if finish_reason and output_schema is not None:
+                        # Validate before emitting the terminal chunk so a
+                        # schema failure surfaces as ResponseParsingError.
+                        chunk.parsed = _finalize_parsed()
+                        finalized = True
+
                     if callback:
                         callback(chunk)
 
@@ -875,6 +908,11 @@ class UniversalAI:
 
                     if finish_reason:
                         break
+
+                # A provider may end the stream without [DONE] or an explicit
+                # finish_reason — validate accumulated content regardless.
+                if output_schema is not None and content_parts and not finalized:
+                    yield StreamChunk(is_final=True, parsed=_finalize_parsed())
         except httpx.RequestError as e:
             raise UAINetworkError(
                 f"Network error during streaming: {e}", provider=provider_lower
@@ -886,6 +924,7 @@ class UniversalAI:
         provider: str,
         model: str,
         start_time: float,
+        request: UnifiedRequest | None = None,
     ) -> UnifiedResponse:
         """Parse a chat completion response into UnifiedResponse."""
         choices = data.get("choices", [])
@@ -938,6 +977,11 @@ class UniversalAI:
             cache_write_tokens=usage_data.get("cache_creation_input_tokens"),
         )
 
+        # Module 1.3.2 — structured output validation on the way back.
+        parsed = None
+        if request is not None and request.output_schema is not None and content:
+            parsed = parse_structured_output(content, request.output_schema, provider=provider)
+
         return UnifiedResponse(
             id=data.get("id"),
             provider=provider,
@@ -946,6 +990,7 @@ class UniversalAI:
             finish_reason=finish_reason,
             usage=usage,
             tool_calls=tool_calls,
+            parsed=parsed,
             raw=data,
         )
 

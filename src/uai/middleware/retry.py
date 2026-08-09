@@ -19,7 +19,13 @@ import random
 import time
 from typing import Any, Callable
 
-from uai.exceptions import UAIError, UAINetworkError, UAIRateLimitError, UAITimeoutError
+from uai.exceptions import (
+    ResponseParsingError,
+    UAIError,
+    UAINetworkError,
+    UAIRateLimitError,
+    UAITimeoutError,
+)
 from uai.middleware.base import BaseMiddleware, MiddlewareContext
 
 logger = logging.getLogger(__name__)
@@ -35,6 +41,10 @@ class RetryMiddleware(BaseMiddleware):
         max_delay: Cap on the backoff delay in seconds (default 10.0).
         jitter: Add randomized jitter to each delay (default True).
         retry_on_status: HTTP status codes that are considered retryable.
+        retry_on_parsing_error: When True, also retry
+            :class:`ResponseParsingError` (structured-output validation
+            failures).  Off by default — enable explicitly when you want
+            the middleware to re-ask the model after malformed JSON.
         logger: Optional logger (defaults to ``uai.middleware``).
     """
 
@@ -47,6 +57,7 @@ class RetryMiddleware(BaseMiddleware):
         max_delay: float = 10.0,
         jitter: bool = True,
         retry_on_status: tuple[int, ...] = (429, 500, 502, 503, 504),
+        retry_on_parsing_error: bool = False,
         logger: logging.Logger | None = None,
     ) -> None:
         self.max_retries = max_retries
@@ -54,6 +65,7 @@ class RetryMiddleware(BaseMiddleware):
         self.max_delay = max_delay
         self.jitter = jitter
         self.retry_on_status = retry_on_status
+        self.retry_on_parsing_error = retry_on_parsing_error
         self._logger = logger or logging.getLogger("uai.middleware.retry")
 
     # -- Helpers ----------------------------------------------------------
@@ -63,6 +75,8 @@ class RetryMiddleware(BaseMiddleware):
         if isinstance(error, (UAIRateLimitError, UAINetworkError, UAITimeoutError)):
             return True
         if isinstance(error, UAIError) and error.status_code in self.retry_on_status:
+            return True
+        if self.retry_on_parsing_error and isinstance(error, ResponseParsingError):
             return True
         return False
 

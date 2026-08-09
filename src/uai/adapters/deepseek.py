@@ -12,7 +12,7 @@ import time
 from collections.abc import Iterator
 from typing import Any
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from uai.adapters.base_adapter import BaseProviderAdapter
 from uai.exceptions import (
@@ -29,6 +29,7 @@ from uai.models import (
     UnifiedResponse,
     UsageMetrics,
 )
+from uai.structured import parse_structured_output
 
 _DEFAULT_MODEL = "deepseek-chat"
 _REASONER_MODEL = "deepseek-reasoner"
@@ -191,19 +192,8 @@ class DeepSeekAdapter(BaseProviderAdapter):
 
     @staticmethod
     def _parse_structured(content: str, schema: type[BaseModel]) -> BaseModel:
-        try:
-            payload = json.loads(content)
-        except json.JSONDecodeError as exc:
-            raise ResponseParsingError(
-                "Structured output could not be parsed as JSON", provider="deepseek"
-            ) from exc
-
-        try:
-            return schema.model_validate(payload)
-        except ValidationError as exc:
-            raise ResponseParsingError(
-                f"Structured output validation failed: {exc}", provider="deepseek"
-            ) from exc
+        """Parse and validate *content* against *schema* (Module 1.3.2)."""
+        return parse_structured_output(content, schema, provider="deepseek")
 
     def handle_streaming(self, response: Any, request: UnifiedRequest) -> Iterator[StreamChunk]:
         """Parse DeepSeek SSE streaming response into ``StreamChunk`` objects.

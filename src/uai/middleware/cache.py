@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 import time
 from typing import Any, Callable
 
@@ -42,11 +43,24 @@ class CacheMiddleware(BaseMiddleware):
 
     @staticmethod
     def _key(request: UnifiedRequest) -> str:
-        """Stable hash of the normalized request (schema-free, no output schema)."""
+        """
+        Stable hash of the normalized request.
+
+        ``output_schema`` is a Pydantic class (not JSON-serializable), so it
+        is excluded from the dump — but its JSON Schema fingerprint is folded
+        into the hash.  Without this, requests differing only in
+        ``output_schema`` would collide and a cached ``parsed`` object for
+        one schema would be served for another (Module 1.3.2).
+        """
         payload = request.model_dump_json(
             exclude_none=True,
             exclude={"output_schema", "metadata"},
         )
+        if request.output_schema is not None:
+            schema_fingerprint = json.dumps(
+                request.output_schema.model_json_schema(), sort_keys=True
+            )
+            payload += "\noutput_schema=" + schema_fingerprint
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def _get(self, key: str) -> Any | None:
