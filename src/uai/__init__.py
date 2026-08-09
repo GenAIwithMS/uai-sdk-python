@@ -6,6 +6,7 @@ providers behind a single, stable API with an opt-in middleware architecture.
 """
 
 from uai.client import UniversalAI
+from uai.enforcer import CapabilityMatrixEnforcer
 from uai.exceptions import (
     FeatureNotSupportedError,
     ResponseParsingError,
@@ -42,6 +43,7 @@ __version__ = "0.1.0"
 __all__ = [
     "BaseMiddleware",
     "CacheMiddleware",
+    "CapabilityMatrixEnforcer",
     "ChatMessage",
     "FeatureNotSupportedError",
     "FinishReason",

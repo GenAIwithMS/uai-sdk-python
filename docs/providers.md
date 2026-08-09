@@ -92,6 +92,26 @@ mis-configuration fails fast rather than at runtime.
 - **Special features:** Reasoning (`hunyuan-pro`), vision, embeddings
 - **Rate limits:** 150 RPM / 20 000 TPM
 
+## Capability enforcement
+
+Per-model capabilities are enforced at runtime by the
+`CapabilityMatrixEnforcer` (Module 1.3.1). The client builds an enforcer for
+the resolved provider/model at the top of every call and raises
+`FeatureNotSupportedError` before any network or middleware work when a
+feature is unsupported — e.g. `tools`, `streaming`, `vision` image content
+on `chat()`, `embeddings` on `embed()`, `rerank` on `rerank()`.
+
+```python
+from uai import CapabilityMatrixEnforcer
+
+enforcer = CapabilityMatrixEnforcer("deepseek", "deepseek-reasoner")
+enforcer.supports("reasoning")   # True
+enforcer.assert_supported("embeddings")  # raises FeatureNotSupportedError
+
+# Or pre-flight via the client:
+client.supports("rerank", provider="qwen", model="qwen-reranker")  # True
+```
+
 ## Registry API
 
 ```python

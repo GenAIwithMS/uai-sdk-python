@@ -28,6 +28,7 @@ from uai.adapters.kimi import KimiAdapter
 from uai.adapters.minimax import MiniMaxAdapter
 from uai.adapters.qwen import QwenAdapter
 from uai.adapters.stepfun import StepFunAdapter
+from uai.enforcer import CapabilityMatrixEnforcer
 from uai.exceptions import (
     FeatureNotSupportedError,
     UAIAuthenticationError,
@@ -41,6 +42,7 @@ from uai.models import (
     ChatMessage,
     EmbeddingsResponse,
     FinishReason,
+    ImageContent,
     RerankResponse,
     StreamChunk,
     UnifiedRequest,
@@ -275,6 +277,50 @@ class UniversalAI:
         result = os.environ.get(api_key_env) if api_key_env else None
         return str(result) if result is not None else None
 
+    def _enforcer(self, provider_lower: str, model_id: str) -> CapabilityMatrixEnforcer:
+        """
+        Build a capability enforcer for the active provider/model/adapter.
+
+        The enforcer merges the registry model capabilities with the
+        adapter's ``capabilities()`` matrix (Module 1.3.1).
+        """
+        config = self._resolve_model(provider_lower, model_id)
+        adapter = self._get_adapter(provider_lower)
+        return CapabilityMatrixEnforcer(
+            provider_lower,
+            model_id,
+            adapter=adapter,
+            config=config,
+        )
+
+    def supports(self, feature: str, provider: str | None = None, model: str | None = None) -> bool:
+        """
+        Pre-flight check: does the resolved provider/model support *feature*?
+
+        Args:
+            feature: Capability name (e.g. ``'vision'``, ``'tools'``).
+            provider: Provider name (defaults to the client's provider).
+            model: Model id or alias (defaults to the client's model).
+
+        Returns:
+            ``True`` if the feature is supported by both the registry model
+            capabilities and the active adapter's matrix.
+        """
+        provider_lower = (provider or self._default_provider).lower()
+        model_id = model or self._default_model
+        return self._enforcer(provider_lower, model_id).supports(feature)
+
+    @staticmethod
+    def _messages_contain_images(messages: list[ChatMessage]) -> bool:
+        """Return True if any message carries an ``ImageContent`` block."""
+        for msg in messages:
+            content = msg.content
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, ImageContent):
+                        return True
+        return False
+
     def chat(
         self,
         messages: list[dict[str, Any] | ChatMessage] | None = None,
@@ -349,6 +395,17 @@ class UniversalAI:
         operation_provider = request.provider or self._default_provider
         operation_model = request.model or self._default_model
 
+        # Module 1.3.1 — capability matrix enforcement.  Halt before any
+        # middleware or network work if the requested features are unsupported.
+        enforcer = self._enforcer(operation_provider.lower(), operation_model)
+        enforcer.assert_supported("chat")
+        if request.tools:
+            enforcer.assert_supported("tools")
+        if stream:
+            enforcer.assert_supported("streaming")
+        if self._messages_contain_images(request.messages):
+            enforcer.assert_supported("vision")
+
         if stream:
             return self._run_stream_pipeline(
                 "chat",
@@ -384,9 +441,11 @@ class UniversalAI:
         Returns:
             An ``EmbeddingsResponse`` with one vector per input text.
         """
+        provider_lower = (provider or self._default_provider).lower()
+        self._enforcer(provider_lower, model or self._default_model).assert_supported("embeddings")
         return self._run_pipeline(
             "embed",
-            (provider or self._default_provider).lower(),
+            provider_lower,
             model or self._default_model,
             None,
             lambda _ctx: self._embed_request(text, provider, model),
@@ -481,9 +540,11 @@ class UniversalAI:
         Returns:
             A RerankResponse with documents ordered by descending relevance.
         """
+        provider_lower = (provider or self._default_provider).lower()
+        self._enforcer(provider_lower, model or self._default_model).assert_supported("rerank")
         return self._run_pipeline(
             "rerank",
-            (provider or self._default_provider).lower(),
+            provider_lower,
             model or self._default_model,
             None,
             lambda _ctx: self._rerank_request(query, documents, provider, model),
@@ -599,7 +660,9 @@ class UniversalAI:
         model_id = request.model or self._default_model
         resolved_id, model_info = self._resolve_model_info(config, model_id)
 
-        # Check chat capability
+        # Post-middleware safety net: the boundary enforcer already gated
+        # the original request, but before_request hooks may have swapped
+        # the provider/model, so re-verify against the resolved model.
         if not model_info.capabilities.chat:
             raise FeatureNotSupportedError(
                 feature="chat",
@@ -678,7 +741,7 @@ class UniversalAI:
         model_id = request.model or self._default_model
         resolved_id, model_info = self._resolve_model_info(config, model_id)
 
-        # Check streaming capability
+        # Post-middleware safety net (see ``_execute_chat``).
         if not model_info.capabilities.streaming:
             raise FeatureNotSupportedError(
                 feature="streaming",

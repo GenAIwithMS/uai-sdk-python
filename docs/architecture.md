@@ -47,14 +47,32 @@ providers inherit them as-is. Rerank is provider-specific; base
 
 Providers advertise which features each model supports via
 `ProviderCapabilities`, validated at import time and aggregated per provider
-through `ProviderConfig.capabilities`. Unsupported calls raise
-`FeatureNotSupportedError` rather than silently failing.
+through `ProviderConfig.capabilities`. The **Capability Matrix Enforcer**
+(Module 1.3.1) merges the registry's per-model capabilities with the active
+adapter's `capabilities()` matrix — a feature is supported only when *both*
+report `True`, so the SDK never fakes an implementation.
+
+The client interrogates the enforcer at the top of every public method
+(`chat`, `embed`, `rerank`) — including sub-features such as `tools`,
+`streaming`, and image (`vision`) content — and raises
+`FeatureNotSupportedError` instantly, before any middleware or network work:
+
+```python
+from uai import CapabilityMatrixEnforcer
+
+enforcer = CapabilityMatrixEnforcer("deepseek", "deepseek-chat")
+enforcer.supports("chat")    # True
+enforcer.assert_supported("vision")  # raises FeatureNotSupportedError
+
+client.supports("vision", provider="qwen", model="qwen-vl-max")  # True
+```
+
+The registry-level `check_capability(provider, model, capability)` helper
+remains available for one-off assertions:
 
 ```python
 from uai.registry import check_capability
-
-# Raises FeatureNotSupportedError if "vision" isn't supported for this model.
-check_capability("deepseek", "deepseek-chat", "vision")
+check_capability("deepseek", "deepseek-chat", "vision")  # raises if unsupported
 ```
 
 See [providers.md](providers.md) for the full matrix and [configuration.md](configuration.md)

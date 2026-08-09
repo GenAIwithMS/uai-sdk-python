@@ -38,22 +38,28 @@ print(response.content)
 
 ## Capability gating
 
-The registry tracks `vision` per model, and `check_capability` raises
-`FeatureNotSupportedError` for models that do not advertise `vision: True`.
-Use it as a pre-flight check before sending image content:
+`client.chat()` enforces the capability matrix **before** any network or
+middleware work (Module 1.3.1): if any message carries an `ImageContent`
+block and the target model does not advertise `vision`, the client raises
+`FeatureNotSupportedError` instantly.
+
+Pre-flight checks are also available if you want to choose a model before
+building the request:
 
 ```python
+client = UniversalAI(api_key="...", provider="qwen")
+client.supports("vision", model="qwen-vl-max")   # -> True
+
 from uai.registry import check_capability
 check_capability("qwen", "qwen-vl-max", "vision")  # raises if unsupported
 ```
 
-> **Note:** `client.chat()` currently gates on the `chat`/`streaming`
-> capabilities only — it does not inspect message content for images. Use
-> `check_capability` to guard vision calls explicitly.
-
 ## Unsupported providers
 
-DeepSeek, GLM, and Kimi do not expose vision models — `check_capability`
-raises `FeatureNotSupportedError` for them. Sending image content to a
-text-only model is not gated by the client, so verify with
-`check_capability` first.
+DeepSeek, GLM, and Kimi do not expose vision models. Sending image content
+to a text-only model raises `FeatureNotSupportedError` immediately — the
+request never reaches the network. To switch providers on the fly:
+
+```python
+client.chat(messages=..., provider="qwen", model="qwen-vl-max")
+```

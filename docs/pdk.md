@@ -98,8 +98,10 @@ The PDK provides tooling and templates to help contributors add new LLM provider
 
 The PDK enforces adapter contracts through:
 - Pydantic schema validation of `ProviderConfig`
-- Capability checks before chat/streaming/embedding/rerank calls
-  (`FeatureNotSupportedError`)
+- Capability checks before chat/streaming/tools/vision/embedding/rerank
+  calls (`FeatureNotSupportedError`) — the client merges the registry model
+  capabilities with your adapter's `capabilities()` matrix, so a mismatch
+  between the two is caught immediately (Module 1.3.1)
 - Adapter unit tests covering every contract method
 
 ## Versioning

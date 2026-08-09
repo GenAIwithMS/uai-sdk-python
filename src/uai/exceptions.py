@@ -74,13 +74,17 @@ class FeatureNotSupportedError(UAIError):
         feature: str | None = None,
         provider: str | None = None,
         model: str | None = None,
+        supported_features: list[str] | None = None,
     ) -> None:
         self.feature = feature
+        self.supported_features = supported_features
         full_msg = message or f"Feature '{feature}' is not supported"
         if provider:
             full_msg += f" by provider '{provider}'"
         if model:
             full_msg += f" (model '{model}')"
+        if supported_features:
+            full_msg += f". Supported features: {', '.join(supported_features)}"
         super().__init__(full_msg, provider=provider, model=model)
 
 

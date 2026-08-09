@@ -52,6 +52,30 @@ instances). There is no `prompt` convenience parameter — always use
 Additional `UnifiedRequest` fields (`frequency_penalty`, `presence_penalty`,
 `tool_choice`, `user`, `metadata`) can be passed as keyword arguments.
 
+## Capability enforcement
+
+`chat()` validates the capability matrix before any network or middleware
+work (Module 1.3.1) and raises `FeatureNotSupportedError` immediately if a
+requested feature is unsupported for the resolved model:
+
+| Requested feature | Capability checked |
+|-------------------|--------------------|
+| `chat()` call itself | `chat` |
+| `tools=[...]` | `tools` |
+| `stream=True` | `streaming` |
+| any message with an `ImageContent` block | `vision` |
+
+For example, passing tool definitions to a model without tool support, or
+image content to a text-only model, raises `FeatureNotSupportedError`
+before the request leaves your process. Use `client.supports()` to
+pre-flight:
+
+```python
+client.supports("tools", model="deepseek-chat")          # -> True
+client.supports("vision", model="deepseek-chat")         # -> False
+client.supports("vision", provider="qwen", model="qwen-vl-max")  # -> True
+```
+
 ## Result
 
 A non-streaming call returns a `UnifiedResponse` with:
