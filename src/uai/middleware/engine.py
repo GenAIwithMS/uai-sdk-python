@@ -230,7 +230,7 @@ class MiddlewareEngine:
                 generator = iter(halted)
             except TypeError as exc:
                 raise TypeError(
-                    "Streaming halt responses must be iterable (got " f"{type(halted).__name__})"
+                    f"Streaming halt responses must be iterable (got {type(halted).__name__})"
                 ) from exc
 
         return self._wrap_stream(generator, context)

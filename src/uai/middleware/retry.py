@@ -76,9 +76,7 @@ class RetryMiddleware(BaseMiddleware):
             return True
         if isinstance(error, UAIError) and error.status_code in self.retry_on_status:
             return True
-        if self.retry_on_parsing_error and isinstance(error, ResponseParsingError):
-            return True
-        return False
+        return self.retry_on_parsing_error and isinstance(error, ResponseParsingError)
 
     def _delay(self, attempt: int, error: BaseException) -> float:
         """Compute the backoff delay for *attempt* (1-based)."""

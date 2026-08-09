@@ -121,5 +121,5 @@ def test_sustained_load_below_150mb() -> None:
     peak_mb = _to_kb(int(raw.strip().splitlines()[-1])) / 1024.0
 
     assert peak_mb < SUSTAINED_FOOTPRINT_MB, (
-        f"peak footprint under load {peak_mb:.1f}MB exceeds the " f"{SUSTAINED_FOOTPRINT_MB}MB KPI"
+        f"peak footprint under load {peak_mb:.1f}MB exceeds the {SUSTAINED_FOOTPRINT_MB}MB KPI"
     )

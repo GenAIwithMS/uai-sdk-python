@@ -147,5 +147,5 @@ def test_streaming_ttft_handling_below_30ms(make_perf_client, stubbed_transport)
 
     assert first_chunk_ms is not None, "stream never yielded a content chunk"
     assert first_chunk_ms < TTFT_HANDLING_TARGET_MS, (
-        f"TTFT handling {first_chunk_ms:.2f}ms exceeds the " f"{TTFT_HANDLING_TARGET_MS}ms KPI"
+        f"TTFT handling {first_chunk_ms:.2f}ms exceeds the {TTFT_HANDLING_TARGET_MS}ms KPI"
     )
