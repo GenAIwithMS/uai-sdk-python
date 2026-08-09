@@ -38,10 +38,11 @@ print(response.content)
 
 ## Capability gating
 
-`client.chat()` enforces the capability matrix **before** any network or
-middleware work (Module 1.3.1): if any message carries an `ImageContent`
-block and the target model does not advertise `vision`, the client raises
-`FeatureNotSupportedError` instantly.
+`client.chat()` enforces the capability matrix (Module 1.3.1) **before** any
+network or middleware work: if any message carries an `ImageContent` block
+and the target model does not advertise `vision`, the client raises
+`FeatureNotSupportedError` instantly, before the middleware pipeline or
+network is reached.
 
 Pre-flight checks are also available if you want to choose a model before
 building the request:

@@ -54,8 +54,8 @@ Additional `UnifiedRequest` fields (`frequency_penalty`, `presence_penalty`,
 
 ## Capability enforcement
 
-`chat()` validates the capability matrix before any network or middleware
-work (Module 1.3.1) and raises `FeatureNotSupportedError` immediately if a
+`chat()` validates the capability matrix (Module 1.3.1) before any network
+or middleware work and raises `FeatureNotSupportedError` immediately if a
 requested feature is unsupported for the resolved model:
 
 | Requested feature | Capability checked |
