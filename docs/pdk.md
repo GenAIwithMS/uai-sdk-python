@@ -10,8 +10,7 @@ The PDK provides tooling and templates to help contributors add new LLM provider
 
 1. **Implement adapter**
 
-   Create `src/uai/adapters/foo.py` and export it from
-   `src/uai/adapters/__init__.py`:
+   Create `src/uai/adapters/foo.py`:
 
    ```python
    from uai.adapters.base_adapter import BaseProviderAdapter
@@ -57,6 +56,29 @@ The PDK provides tooling and templates to help contributors add new LLM provider
 
    Adapters are **synchronous** — no `async` keywords.
 
+   **Register the adapter** (Module 1.6.1 lazy loading — there is no eager
+   import list):
+
+   - Add a `"FooAdapter": ("uai.adapters.foo", "FooAdapter")` entry to the
+     `_LAZY` spec map in `src/uai/adapters/__init__.py` and to its `__all__`.
+   - Add a `"foo": ("uai.adapters.foo", "FooAdapter")` entry to
+     `_ADAPTER_SPECS` in `src/uai/client.py` so the client can resolve the
+     adapter by provider name on first use.
+
+   ```python
+   # src/uai/adapters/__init__.py
+   _LAZY = {
+       ...,
+       "FooAdapter": ("uai.adapters.foo", "FooAdapter"),
+   }
+
+   # src/uai/client.py
+   _ADAPTER_SPECS = {
+       ...,
+       "foo": ("uai.adapters.foo", "FooAdapter"),
+   }
+   ```
+
    Optional hooks (from `BaseProviderAdapter`):
 
    - Embeddings share the OpenAI-compatible schema by default, so the base
@@ -90,7 +112,11 @@ The PDK provides tooling and templates to help contributors add new LLM provider
    - Unit: `tests/unit/test_adapters_foo.py` (mirror `test_adapters_kimi.py` /
      `test_adapters_stepfun.py` for the full auth / format / parse / streaming
      / error / capabilities coverage)
-   - Integration: use local mock server in `tests/integration/`
+   - Integration: spin up the in-process mock provider server
+     (`uai.testing.MockProviderServer`, Module 1.6) and drive the adapter
+     through `UniversalAI` with `UAI_PROVIDER_FOO_BASE_URL` pointed at it,
+     exactly like `tests/unit/test_testing.py` and the `tests/performance/`
+     KPI suite do.
 
 4. **Document** in `docs/providers.md`.
 

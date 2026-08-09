@@ -67,6 +67,7 @@ print(result.parsed)
 - ✅ Provider adapters with strict capability enforcement
 - ✅ Opt-in middleware — retry, cache, circuit breaker, logging, tracing, metrics (`client.use(...)`)
 - ✅ Benchmark CLI covering all chat models (`uai benchmark`)
+- ✅ KPI regression suite — <5 ms SDK overhead, ≥1,000 req/min, memory caps (see [docs/performance.md](docs/performance.md))
 - ✅ Security-first design (no secret logging, input validation)
 - ✅ Extensible — easily add new providers via the [PDK](docs/pdk.md)
 - ✅ Prometheus-style metrics — in-process `MetricsRegistry` with `render()`
@@ -99,6 +100,7 @@ print(result.parsed)
 - [Structured Output](docs/structured_output.md) — schema validation & parsing
 - [Middleware](docs/middleware.md) — creating and composing interceptors (retry, cache, circuit breaker, logging, tracing, metrics)
 - [Benchmark](docs/benchmark.md) — offline benchmarking CLI covering all models
+- [Performance](docs/performance.md) — KPI targets & systemic testing (Module 1.6), mock provider server
 - [Telemetry](docs/telemetry.md) — Prometheus-style metrics and GenAI tracing spans
 - [Configuration](docs/configuration.md) — env vars, YAML config, API key management
 - [PDK](docs/pdk.md) — Provider Development Kit guide

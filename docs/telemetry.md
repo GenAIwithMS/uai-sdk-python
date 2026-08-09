@@ -13,7 +13,7 @@ and renderable in Prometheus text exposition format via `render()`.
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `uai_requests_total` | Counter | Total SDK calls, tagged by operation/provider/status |
+| `uai_requests_total` | Counter | Total SDK calls, tagged by operation/provider/model/status |
 | `uai_provider_requests_total` | Counter | Per-provider calls, tagged by status |
 | `uai_request_duration_seconds` | Histogram | End-to-end latency of the operation |
 | `uai_ttft_seconds` | Histogram | Time-to-first-token (streaming) |
@@ -21,7 +21,7 @@ and renderable in Prometheus text exposition format via `render()`.
 | `uai_tokens_output_total` | Counter | Output token usage |
 | `uai_cache_hits_total` | Counter | Cache hit count |
 | `uai_retries_total` | Counter | Automatic retry count |
-| `uai_errors_total` | Counter | Errors, tagged by type (exception class name) |
+| `uai_errors_total` | Counter | Errors, tagged by operation/provider/model/type (exception class name) |
 
 ## Enabling metrics
 

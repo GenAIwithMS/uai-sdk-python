@@ -10,24 +10,17 @@ This is the primary entry point for the SDK. It handles:
 
 from __future__ import annotations
 
+import importlib
 import json
 import logging
 import os
 import time
 from collections.abc import Iterator
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 import httpx
 
 from uai.adapters.base_adapter import BaseProviderAdapter
-from uai.adapters.deepseek import DeepSeekAdapter
-from uai.adapters.doubao import DoubaoAdapter
-from uai.adapters.glm import GLMAdapter
-from uai.adapters.hunyuan import HunyuanAdapter
-from uai.adapters.kimi import KimiAdapter
-from uai.adapters.minimax import MiniMaxAdapter
-from uai.adapters.qwen import QwenAdapter
-from uai.adapters.stepfun import StepFunAdapter
 from uai.enforcer import CapabilityMatrixEnforcer
 from uai.exceptions import (
     FeatureNotSupportedError,
@@ -57,21 +50,20 @@ from uai.structured import build_schema_prompt, parse_structured_output
 
 logger = logging.getLogger(__name__)
 
-_ADAPTER_REGISTRY: dict[str, type[BaseProviderAdapter]] = {}
-
-
-def _register_adapter(name: str, cls: type[BaseProviderAdapter]) -> None:
-    _ADAPTER_REGISTRY[name] = cls
-
-
-_register_adapter("deepseek", DeepSeekAdapter)
-_register_adapter("qwen", QwenAdapter)
-_register_adapter("glm", GLMAdapter)
-_register_adapter("kimi", KimiAdapter)
-_register_adapter("stepfun", StepFunAdapter)
-_register_adapter("doubao", DoubaoAdapter)
-_register_adapter("minimax", MiniMaxAdapter)
-_register_adapter("hunyuan", HunyuanAdapter)
+# Adapter classes are loaded lazily (Module 1.6.1 — resource footprint):
+# importing every provider adapter eagerly at ``import uai`` adds ~7 MB of
+# marginal memory for users of a single provider. Each spec maps a provider
+# name to ``(module, class_name)`` resolved on first use.
+_ADAPTER_SPECS: dict[str, tuple[str, str]] = {
+    "deepseek": ("uai.adapters.deepseek", "DeepSeekAdapter"),
+    "qwen": ("uai.adapters.qwen", "QwenAdapter"),
+    "glm": ("uai.adapters.glm", "GLMAdapter"),
+    "kimi": ("uai.adapters.kimi", "KimiAdapter"),
+    "stepfun": ("uai.adapters.stepfun", "StepFunAdapter"),
+    "doubao": ("uai.adapters.doubao", "DoubaoAdapter"),
+    "minimax": ("uai.adapters.minimax", "MiniMaxAdapter"),
+    "hunyuan": ("uai.adapters.hunyuan", "HunyuanAdapter"),
+}
 
 
 class UniversalAI:
@@ -184,14 +176,16 @@ class UniversalAI:
         return self._engine.run_stream(operation, provider, model, request, stream_fn)
 
     def _get_adapter(self, provider_lower: str) -> BaseProviderAdapter:
-        """Return the adapter instance for a provider, creating it lazily."""
+        """Return the adapter instance for a provider, importing it lazily."""
         if provider_lower not in self._adapters:
-            adapter_cls = _ADAPTER_REGISTRY.get(provider_lower)
-            if adapter_cls is None:
-                available = ", ".join(_ADAPTER_REGISTRY.keys())
+            spec = _ADAPTER_SPECS.get(provider_lower)
+            if spec is None:
+                available = ", ".join(_ADAPTER_SPECS.keys())
                 raise ValueError(
                     f"No adapter for provider '{provider_lower}'. Available: {available}"
                 )
+            module_name, class_name = spec
+            adapter_cls = getattr(importlib.import_module(module_name), class_name)
             self._adapters[provider_lower] = adapter_cls()
         return self._adapters[provider_lower]
 
@@ -337,19 +331,27 @@ class UniversalAI:
             enforcer.assert_supported("vision")
 
         if stream:
-            return self._run_stream_pipeline(
+            return cast(
+                Iterator[StreamChunk],
+                self._run_stream_pipeline(
+                    "chat",
+                    operation_provider,
+                    operation_model,
+                    request,
+                    lambda ctx: self._execute_streaming_chat(
+                        cast(UnifiedRequest, ctx.request), stream_callback
+                    ),
+                ),
+            )
+        return cast(
+            UnifiedResponse,
+            self._run_pipeline(
                 "chat",
                 operation_provider,
                 operation_model,
                 request,
-                lambda ctx: self._execute_streaming_chat(ctx.request, stream_callback),
-            )
-        return self._run_pipeline(
-            "chat",
-            operation_provider,
-            operation_model,
-            request,
-            lambda ctx: self._execute_chat(ctx.request),
+                lambda ctx: self._execute_chat(cast(UnifiedRequest, ctx.request)),
+            ),
         )
 
     def embed(
@@ -373,12 +375,15 @@ class UniversalAI:
         """
         provider_lower = (provider or self._default_provider).lower()
         self._enforcer(provider_lower, model or self._default_model).assert_supported("embeddings")
-        return self._run_pipeline(
-            "embed",
-            provider_lower,
-            model or self._default_model,
-            None,
-            lambda _ctx: self._embed_request(text, provider, model),
+        return cast(
+            EmbeddingsResponse,
+            self._run_pipeline(
+                "embed",
+                provider_lower,
+                model or self._default_model,
+                None,
+                lambda _ctx: self._embed_request(text, provider, model),
+            ),
         )
 
     def _embed_request(
@@ -472,12 +477,15 @@ class UniversalAI:
         """
         provider_lower = (provider or self._default_provider).lower()
         self._enforcer(provider_lower, model or self._default_model).assert_supported("rerank")
-        return self._run_pipeline(
-            "rerank",
-            provider_lower,
-            model or self._default_model,
-            None,
-            lambda _ctx: self._rerank_request(query, documents, provider, model),
+        return cast(
+            RerankResponse,
+            self._run_pipeline(
+                "rerank",
+                provider_lower,
+                model or self._default_model,
+                None,
+                lambda _ctx: self._rerank_request(query, documents, provider, model),
+            ),
         )
 
     def _rerank_request(

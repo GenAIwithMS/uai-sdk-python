@@ -125,3 +125,18 @@ The SDK maintains provider abstraction through:
 2. Consistent error translation across providers
 3. Capability enforcement based on provider model capabilities
 4. Provider adapter encapsulation of provider-specific logic
+
+### Performance Targets (Module 1.6)
+
+The SDK commits to strict non-functional guarantees validated by an
+automated KPI regression suite in `tests/performance/`, running against an
+in-process **mock provider server** (`uai.testing.MockProviderServer`):
+
+- Internal processing overhead < **5 ms** per request
+- Streaming TTFT handling overhead < **30 ms**
+- Throughput ≥ **1,000 requests/minute**
+- Memory: idle < 50 MB marginal, < **150 MB** under ~100 parallel requests
+
+Provider adapters are **lazy-loaded** on first use, keeping `import uai`
+light for single-provider applications. See [performance.md](performance.md)
+for how to run the suite and tune thresholds.

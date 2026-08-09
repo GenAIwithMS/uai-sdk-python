@@ -188,8 +188,11 @@ poetry run pytest tests/integration
 # Run with coverage
 poetry run pytest --cov=uai --cov-report=terminal-missing
 
-# Run performance benchmarks
-poetry run pytest tests/performance --benchmark-only
+# Run performance KPI regression tests (Module 1.6)
+poetry run pytest tests/performance -v
+
+# Include the memory footprint KPIs (idle < 30MB, sustained < 150MB)
+UAI_PERF_MEMORY=1 poetry run pytest tests/performance/test_kpi_memory.py -v
 
 # Run with verbose output
 poetry run pytest -v

@@ -106,7 +106,9 @@ class MetricsRegistry:
 
     # ------------------------------------------------------------------
     # Export
-    # ------------------------------------------------------------------    @staticmethod
+    # ------------------------------------------------------------------
+
+    @staticmethod
     def _escape_label_value(value: str) -> str:
         """Escape backslashes and double-quotes in a label value."""
         return value.replace("\\", "\\\\").replace('"', '\\"')

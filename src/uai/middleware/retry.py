@@ -85,7 +85,7 @@ class RetryMiddleware(BaseMiddleware):
         base: float = self.base_delay
         if isinstance(error, UAIRateLimitError) and error.retry_after is not None:
             base = error.retry_after
-        delay = min(self.max_delay, base * (2 ** (attempt - 1)))
+        delay: float = min(self.max_delay, base * (2 ** (attempt - 1)))
         if self.jitter:
             delay *= random.uniform(0.5, 1.5)
         return delay

@@ -23,8 +23,9 @@ from __future__ import annotations
 import concurrent.futures
 import statistics
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Callable, cast
 
 from uai import UniversalAI
 from uai.models import StreamChunk, UnifiedResponse
@@ -149,13 +150,17 @@ def _run_iteration(
     try:
         if stream:
             last: StreamChunk | None = None
-            for chunk in client.chat(
-                messages=[{"role": "user", "content": prompt}],
-                model=model,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                stream=True,
-            ):
+            stream_iter = cast(
+                Iterator[StreamChunk],
+                client.chat(
+                    messages=[{"role": "user", "content": prompt}],
+                    model=model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    stream=True,
+                ),
+            )
+            for chunk in stream_iter:
                 if chunk.content and ttft_ms is None:
                     ttft_ms = (time.monotonic() - start) * 1000
                 last = chunk
@@ -167,11 +172,14 @@ def _run_iteration(
                 # Provider did not report usage on the stream — estimate.
                 input_tokens = _estimate_tokens(prompt)
         else:
-            response: UnifiedResponse = client.chat(
-                messages=[{"role": "user", "content": prompt}],
-                model=model,
-                max_tokens=max_tokens,
-                temperature=temperature,
+            response = cast(
+                UnifiedResponse,
+                client.chat(
+                    messages=[{"role": "user", "content": prompt}],
+                    model=model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                ),
             )
             latency_ms = (time.monotonic() - start) * 1000
             input_tokens = response.usage.input_tokens

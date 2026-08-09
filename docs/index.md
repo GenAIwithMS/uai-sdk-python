@@ -19,6 +19,7 @@ This is the central documentation hub for the **Universal AI Provider SDK (uai-s
 - [Vision](vision.md) — Multi-modal image interpretation, routed via chat content blocks
 - [Rerank](rerank.md) — Document ranking via provider adapters (Qwen, GLM)
 - [Benchmark CLI](benchmark.md) — Offline benchmarking tool (`uai benchmark`)
+- [Performance](performance.md) — KPI targets & systemic testing (Module 1.6), mock provider server
 
 > **Audio / voice / TTS / transcription** are **not** implemented yet. As
 > previously decided, they are deferred (a large, MiniMax-focused lift); all
@@ -27,6 +28,7 @@ This is the central documentation hub for the **Universal AI Provider SDK (uai-s
 ## Developer Guide
 
 - [Middleware](middleware.md) — Creating and composing interceptors (Cache, Retry, Circuit Breaker, Logging, Tracing, Metrics)
+- [Performance](performance.md) — KPI regression suite (overhead, TTFT, throughput, memory) and mock server
 - [Benchmark](benchmark.md) — Offline benchmarking CLI covering all models
 - [Telemetry](telemetry.md) — Prometheus-style metrics (in-process registry) and GenAI tracing spans
 - [PDK](pdk.md) — Provider Development Kit: adding a new provider adapter
