@@ -13,7 +13,9 @@ def test_poetry_metadata_not_nested_under_scripts():
 
     keywords_idx = next(i for i, line in enumerate(lines) if line.startswith("keywords = ["))
     repository_idx = next(i for i, line in enumerate(lines) if line.startswith("repository = "))
-    documentation_idx = next(i for i, line in enumerate(lines) if line.startswith("documentation = "))
+    documentation_idx = next(
+        i for i, line in enumerate(lines) if line.startswith("documentation = ")
+    )
     classifiers_idx = next(i for i, line in enumerate(lines) if line.startswith("classifiers = ["))
 
     assert keywords_idx < scripts_idx
