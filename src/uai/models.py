@@ -600,6 +600,10 @@ class StreamChunk(BaseModel):
         default=False,
         description="Whether this is the final chunk in the stream.",
     )
+    parsed: BaseModel | None = Field(
+        default=None,
+        description="Validated structured output on the final chunk (when ``output_schema`` was provided).",
+    )
     raw: dict[str, Any] | None = Field(
         default=None,
         description="The original provider chunk, for debugging.",

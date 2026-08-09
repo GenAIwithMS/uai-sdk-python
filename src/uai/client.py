@@ -10,55 +10,60 @@ This is the primary entry point for the SDK. It handles:
 
 from __future__ import annotations
 
+import importlib
 import json
 import logging
 import os
 import time
 from collections.abc import Iterator
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 import httpx
 
 from uai.adapters.base_adapter import BaseProviderAdapter
-from uai.adapters.deepseek import DeepSeekAdapter
-from uai.adapters.doubao import DoubaoAdapter
-from uai.adapters.glm import GLMAdapter
-from uai.adapters.hunyuan import HunyuanAdapter
-from uai.adapters.kimi import KimiAdapter
-from uai.adapters.minimax import MiniMaxAdapter
-from uai.adapters.qwen import QwenAdapter
-from uai.adapters.stepfun import StepFunAdapter
-from uai.exceptions import FeatureNotSupportedError, UAIError
+from uai.enforcer import CapabilityMatrixEnforcer
+from uai.exceptions import (
+    FeatureNotSupportedError,
+    UAIAuthenticationError,
+    UAIError,
+    UAINetworkError,
+    UAIRateLimitError,
+    UAITimeoutError,
+)
+from uai.middleware.base import BaseMiddleware, MiddlewareContext
+from uai.middleware.engine import MiddlewareEngine
 from uai.models import (
     ChatMessage,
     EmbeddingsResponse,
     FinishReason,
+    ImageContent,
     RerankResponse,
     StreamChunk,
+    ToolDefinition,
     UnifiedRequest,
     UnifiedResponse,
     UsageMetrics,
 )
 from uai.registry import apply_env_overrides, get_provider_config
 from uai.registry.schema import ProviderConfig, ProviderModel
+from uai.structured import build_schema_prompt, parse_structured_output
 
 logger = logging.getLogger(__name__)
 
-_ADAPTER_REGISTRY: dict[str, type[BaseProviderAdapter]] = {}
-
-
-def _register_adapter(name: str, cls: type[BaseProviderAdapter]) -> None:
-    _ADAPTER_REGISTRY[name] = cls
-
-
-_register_adapter("deepseek", DeepSeekAdapter)
-_register_adapter("qwen", QwenAdapter)
-_register_adapter("glm", GLMAdapter)
-_register_adapter("kimi", KimiAdapter)
-_register_adapter("stepfun", StepFunAdapter)
-_register_adapter("doubao", DoubaoAdapter)
-_register_adapter("minimax", MiniMaxAdapter)
-_register_adapter("hunyuan", HunyuanAdapter)
+# Adapter classes are loaded lazily (Module 1.6.1 — resource footprint):
+# importing every provider adapter eagerly at ``import uai`` adds ~7 MB of
+# marginal memory for users of a single provider. Each spec maps a provider
+# name to ``(module, class_name)`` resolved on first use.
+_ADAPTER_SPECS: dict[str, tuple[str, str]] = {
+    "deepseek": ("uai.adapters.deepseek", "DeepSeekAdapter"),
+    "qwen": ("uai.adapters.qwen", "QwenAdapter"),
+    "glm": ("uai.adapters.glm", "GLMAdapter"),
+    "kimi": ("uai.adapters.kimi", "KimiAdapter"),
+    "stepfun": ("uai.adapters.stepfun", "StepFunAdapter"),
+    "doubao": ("uai.adapters.doubao", "DoubaoAdapter"),
+    "minimax": ("uai.adapters.minimax", "MiniMaxAdapter"),
+    "hunyuan": ("uai.adapters.hunyuan", "HunyuanAdapter"),
+}
 
 
 class UniversalAI:
@@ -125,21 +130,62 @@ class UniversalAI:
         self._default_model = model or self._config.default_model
 
         self._adapters: dict[str, BaseProviderAdapter] = {}
+        self._engine = MiddlewareEngine()
 
         logger.debug(
             f"UniversalAI client initialized with provider={self._default_provider}, "
             f"model={self._default_model}"
         )
 
+    def use(self, middleware: BaseMiddleware | list[BaseMiddleware]) -> UniversalAI:
+        """
+        Register one or more middleware instances (opt-in pipeline).
+
+        Middleware hooks run in registration order for ``before_request``
+        and in reverse order for ``after_response``/``on_error``.
+
+        Args:
+            middleware: A single middleware or a list of middleware.
+
+        Returns:
+            The client, for chaining.
+        """
+        self._engine.use(middleware)
+        return self
+
+    def _run_pipeline(
+        self,
+        operation: str,
+        provider: str,
+        model: str,
+        request: Any,
+        execute_fn: Callable[[MiddlewareContext], Any],
+    ) -> Any:
+        """Run before -> execute -> after around a non-streaming callable (Module 1.4.1)."""
+        return self._engine.run(operation, provider, model, request, execute_fn)
+
+    def _run_stream_pipeline(
+        self,
+        operation: str,
+        provider: str,
+        model: str,
+        request: Any,
+        stream_fn: Callable[[MiddlewareContext], Any],
+    ) -> Any:
+        """Run before -> execute around a streaming callable; after on finish (Module 1.4.1)."""
+        return self._engine.run_stream(operation, provider, model, request, stream_fn)
+
     def _get_adapter(self, provider_lower: str) -> BaseProviderAdapter:
-        """Return the adapter instance for a provider, creating it lazily."""
+        """Return the adapter instance for a provider, importing it lazily."""
         if provider_lower not in self._adapters:
-            adapter_cls = _ADAPTER_REGISTRY.get(provider_lower)
-            if adapter_cls is None:
-                available = ", ".join(_ADAPTER_REGISTRY.keys())
+            spec = _ADAPTER_SPECS.get(provider_lower)
+            if spec is None:
+                available = ", ".join(_ADAPTER_SPECS.keys())
                 raise ValueError(
                     f"No adapter for provider '{provider_lower}'. Available: {available}"
                 )
+            module_name, class_name = spec
+            adapter_cls = getattr(importlib.import_module(module_name), class_name)
             self._adapters[provider_lower] = adapter_cls()
         return self._adapters[provider_lower]
 
@@ -152,6 +198,50 @@ class UniversalAI:
         api_key_env = config.api_key_env_var
         result = os.environ.get(api_key_env) if api_key_env else None
         return str(result) if result is not None else None
+
+    def _enforcer(self, provider_lower: str, model_id: str) -> CapabilityMatrixEnforcer:
+        """
+        Build a capability enforcer for the active provider/model/adapter.
+
+        The enforcer merges the registry model capabilities with the
+        adapter's ``capabilities()`` matrix (Module 1.3.1).
+        """
+        config = self._resolve_model(provider_lower, model_id)
+        adapter = self._get_adapter(provider_lower)
+        return CapabilityMatrixEnforcer(
+            provider_lower,
+            model_id,
+            adapter=adapter,
+            config=config,
+        )
+
+    def supports(self, feature: str, provider: str | None = None, model: str | None = None) -> bool:
+        """
+        Pre-flight check: does the resolved provider/model support *feature*?
+
+        Args:
+            feature: Capability name (e.g. ``'vision'``, ``'tools'``).
+            provider: Provider name (defaults to the client's provider).
+            model: Model id or alias (defaults to the client's model).
+
+        Returns:
+            ``True`` if the feature is supported by both the registry model
+            capabilities and the active adapter's matrix.
+        """
+        provider_lower = (provider or self._default_provider).lower()
+        model_id = model or self._default_model
+        return self._enforcer(provider_lower, model_id).supports(feature)
+
+    @staticmethod
+    def _messages_contain_images(messages: list[ChatMessage]) -> bool:
+        """Return True if any message carries an ``ImageContent`` block."""
+        for msg in messages:
+            content = msg.content
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, ImageContent):
+                        return True
+        return False
 
     def chat(
         self,
@@ -213,9 +303,11 @@ class UniversalAI:
             stream=stream,
         )
 
-        # Apply tools if provided
+        # Apply tools if provided — normalize dicts to ToolDefinition so the
+        # request model stays consistent (the constructor validator does this
+        # on construction, but tools are assigned after it).
         if tools is not None:
-            request.tools = tools
+            request.tools = [ToolDefinition(**t) if isinstance(t, dict) else t for t in tools]
         if output_schema is not None:
             request.output_schema = output_schema
 
@@ -224,11 +316,77 @@ class UniversalAI:
             if hasattr(request, key) and value is not None:
                 setattr(request, key, value)
 
+        operation_provider = request.provider or self._default_provider
+        operation_model = request.model or self._default_model
+
+        # Module 1.3.1 — capability matrix enforcement.  Halt before any
+        # middleware or network work if the requested features are unsupported.
+        enforcer = self._enforcer(operation_provider.lower(), operation_model)
+        enforcer.assert_supported("chat")
+        if request.tools:
+            enforcer.assert_supported("tools")
         if stream:
-            return self._execute_streaming_chat(request, stream_callback)
-        return self._execute_chat(request)
+            enforcer.assert_supported("streaming")
+        if self._messages_contain_images(request.messages):
+            enforcer.assert_supported("vision")
+
+        if stream:
+            return cast(
+                Iterator[StreamChunk],
+                self._run_stream_pipeline(
+                    "chat",
+                    operation_provider,
+                    operation_model,
+                    request,
+                    lambda ctx: self._execute_streaming_chat(
+                        cast(UnifiedRequest, ctx.request), stream_callback
+                    ),
+                ),
+            )
+        return cast(
+            UnifiedResponse,
+            self._run_pipeline(
+                "chat",
+                operation_provider,
+                operation_model,
+                request,
+                lambda ctx: self._execute_chat(cast(UnifiedRequest, ctx.request)),
+            ),
+        )
 
     def embed(
+        self,
+        text: str | list[str],
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> EmbeddingsResponse:
+        """
+        Generate embeddings for one or more input texts.
+
+        Routed through the registered middleware pipeline (if any).
+
+        Args:
+            text: A single text or a list of texts to embed.
+            provider: Target provider (uses default if not specified).
+            model: Embedding model name (uses default if not specified).
+
+        Returns:
+            An ``EmbeddingsResponse`` with one vector per input text.
+        """
+        provider_lower = (provider or self._default_provider).lower()
+        self._enforcer(provider_lower, model or self._default_model).assert_supported("embeddings")
+        return cast(
+            EmbeddingsResponse,
+            self._run_pipeline(
+                "embed",
+                provider_lower,
+                model or self._default_model,
+                None,
+                lambda _ctx: self._embed_request(text, provider, model),
+            ),
+        )
+
+    def _embed_request(
         self,
         text: str | list[str],
         provider: str | None = None,
@@ -287,9 +445,9 @@ class UniversalAI:
         except httpx.HTTPStatusError as e:
             raise self._handle_http_error(e, provider_lower) from e
         except httpx.TimeoutException as e:
-            raise UAIError(f"Request timeout: {e}") from e
+            raise UAITimeoutError(f"Request timeout: {e}", provider=provider_lower) from e
         except httpx.RequestError as e:
-            raise UAIError(f"Network error: {e}") from e
+            raise UAINetworkError(f"Network error: {e}", provider=provider_lower) from e
 
         result = adapter.parse_embed_response(response.json(), resolved_id)
         if result.provider is None:
@@ -297,6 +455,40 @@ class UniversalAI:
         return result
 
     def rerank(
+        self,
+        query: str,
+        documents: list[str],
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> RerankResponse:
+        """
+        Rank documents by relevance to a query.
+
+        Routed through the registered middleware pipeline (if any).
+
+        Args:
+            query: The query text to rank documents against.
+            documents: The candidate documents to rerank.
+            provider: Provider name (uses default if not specified).
+            model: Rerank model name (uses default if not specified).
+
+        Returns:
+            A RerankResponse with documents ordered by descending relevance.
+        """
+        provider_lower = (provider or self._default_provider).lower()
+        self._enforcer(provider_lower, model or self._default_model).assert_supported("rerank")
+        return cast(
+            RerankResponse,
+            self._run_pipeline(
+                "rerank",
+                provider_lower,
+                model or self._default_model,
+                None,
+                lambda _ctx: self._rerank_request(query, documents, provider, model),
+            ),
+        )
+
+    def _rerank_request(
         self,
         query: str,
         documents: list[str],
@@ -356,9 +548,9 @@ class UniversalAI:
         except httpx.HTTPStatusError as e:
             raise self._handle_http_error(e, provider_lower) from e
         except httpx.TimeoutException as e:
-            raise UAIError(f"Request timeout: {e}") from e
+            raise UAITimeoutError(f"Request timeout: {e}", provider=provider_lower) from e
         except httpx.RequestError as e:
-            raise UAIError(f"Network error: {e}") from e
+            raise UAINetworkError(f"Network error: {e}", provider=provider_lower) from e
 
         result = adapter.parse_rerank_response(response.json(), resolved_id)
         if result.provider is None:
@@ -406,7 +598,9 @@ class UniversalAI:
         model_id = request.model or self._default_model
         resolved_id, model_info = self._resolve_model_info(config, model_id)
 
-        # Check chat capability
+        # Post-middleware safety net: the boundary enforcer already gated
+        # the original request, but before_request hooks may have swapped
+        # the provider/model, so re-verify against the resolved model.
         if not model_info.capabilities.chat:
             raise FeatureNotSupportedError(
                 feature="chat",
@@ -444,18 +638,26 @@ class UniversalAI:
         except httpx.HTTPStatusError as e:
             raise self._handle_http_error(e, provider_lower) from e
         except httpx.TimeoutException as e:
-            raise UAIError(f"Request timeout: {e}") from e
+            raise UAITimeoutError(f"Request timeout: {e}", provider=provider_lower) from e
         except httpx.RequestError as e:
-            raise UAIError(f"Network error: {e}") from e
+            raise UAINetworkError(f"Network error: {e}", provider=provider_lower) from e
 
         data = response.json()
-        return self._parse_chat_response(data, provider_lower, resolved_id, start_time)
+        return self._parse_chat_response(data, provider_lower, resolved_id, start_time, request)
 
     def _build_request_body(self, request: UnifiedRequest, model_id: str) -> dict[str, Any]:
         """Build the request body for the provider API."""
+        messages = [m.model_dump(exclude_none=True) for m in request.messages]
+        if request.output_schema is not None:
+            # Module 1.3.2 — nudge the model toward schema-conforming JSON by
+            # injecting the JSON Schema as a system instruction.
+            messages = [
+                {"role": "system", "content": build_schema_prompt(request.output_schema)},
+                *messages,
+            ]
         body: dict[str, Any] = {
             "model": model_id,
-            "messages": [m.model_dump(exclude_none=True) for m in request.messages],
+            "messages": messages,
         }
 
         if request.max_tokens is not None:
@@ -485,7 +687,7 @@ class UniversalAI:
         model_id = request.model or self._default_model
         resolved_id, model_info = self._resolve_model_info(config, model_id)
 
-        # Check streaming capability
+        # Post-middleware safety net (see ``_execute_chat``).
         if not model_info.capabilities.streaming:
             raise FeatureNotSupportedError(
                 feature="streaming",
@@ -511,6 +713,20 @@ class UniversalAI:
         first_chunk = True
         finish_reason = None
         seen_ids = set()
+        # Module 1.3.2 — accumulate content deltas so the assembled payload
+        # can be validated against ``output_schema`` when the stream ends.
+        output_schema = request.output_schema
+        content_parts: list[str] = []
+
+        def _finalize_parsed() -> Any:
+            """Validate accumulated content against output_schema, if set."""
+            if output_schema is None or not content_parts:
+                return None
+            return parse_structured_output(
+                "".join(content_parts), output_schema, provider=provider_lower
+            )
+
+        finalized = False
 
         try:
             with httpx.stream(
@@ -536,7 +752,8 @@ class UniversalAI:
                         line_str = line_str[6:]
 
                     if line_str.strip() in ("[DONE]", "data: [DONE]"):
-                        yield StreamChunk(is_final=True)
+                        yield StreamChunk(is_final=True, parsed=_finalize_parsed())
+                        finalized = True
                         break
 
                     if not line_str.strip():
@@ -589,6 +806,20 @@ class UniversalAI:
                     if chunk_id:
                         seen_ids.add(chunk_id)
 
+                    # Extract usage (some providers send it on the final chunk)
+                    usage = None
+                    usage_dict = chunk_data.get("usage")
+                    if usage_dict:
+                        usage = UsageMetrics(
+                            input_tokens=usage_dict.get("prompt_tokens", 0),
+                            output_tokens=usage_dict.get("completion_tokens", 0),
+                            cache_read_tokens=usage_dict.get("cache_read_input_tokens"),
+                            cache_write_tokens=usage_dict.get("cache_creation_input_tokens"),
+                        )
+
+                    if content and output_schema is not None:
+                        content_parts.append(content)
+
                     chunk = StreamChunk(
                         content=content if content else None,
                         tool_calls=tool_calls,
@@ -596,9 +827,16 @@ class UniversalAI:
                         id=actual_id,
                         model=resolved_id,
                         provider=provider_lower,
+                        usage=usage,
                         is_final=finish_reason is not None,
                         ttft_ms=ttft_ms,
                     )
+
+                    if finish_reason and output_schema is not None:
+                        # Validate before emitting the terminal chunk so a
+                        # schema failure surfaces as ResponseParsingError.
+                        chunk.parsed = _finalize_parsed()
+                        finalized = True
 
                     if callback:
                         callback(chunk)
@@ -607,8 +845,15 @@ class UniversalAI:
 
                     if finish_reason:
                         break
+
+                # A provider may end the stream without [DONE] or an explicit
+                # finish_reason — validate accumulated content regardless.
+                if output_schema is not None and content_parts and not finalized:
+                    yield StreamChunk(is_final=True, parsed=_finalize_parsed())
         except httpx.RequestError as e:
-            raise UAIError(f"Network error during streaming: {e}") from e
+            raise UAINetworkError(
+                f"Network error during streaming: {e}", provider=provider_lower
+            ) from e
 
     def _parse_chat_response(
         self,
@@ -616,6 +861,7 @@ class UniversalAI:
         provider: str,
         model: str,
         start_time: float,
+        request: UnifiedRequest | None = None,
     ) -> UnifiedResponse:
         """Parse a chat completion response into UnifiedResponse."""
         choices = data.get("choices", [])
@@ -668,6 +914,11 @@ class UniversalAI:
             cache_write_tokens=usage_data.get("cache_creation_input_tokens"),
         )
 
+        # Module 1.3.2 — structured output validation on the way back.
+        parsed = None
+        if request is not None and request.output_schema is not None and content:
+            parsed = parse_structured_output(content, request.output_schema, provider=provider)
+
         return UnifiedResponse(
             id=data.get("id"),
             provider=provider,
@@ -676,25 +927,55 @@ class UniversalAI:
             finish_reason=finish_reason,
             usage=usage,
             tool_calls=tool_calls,
+            parsed=parsed,
             raw=data,
         )
+
+    @staticmethod
+    def _parse_retry_after(response: httpx.Response | None) -> float | None:
+        """Parse the ``Retry-After`` header (seconds) if present."""
+        if response is None:
+            return None
+        value = response.headers.get("Retry-After")
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except ValueError:
+            return None
 
     def _handle_http_error(self, error: httpx.HTTPStatusError, provider: str) -> UAIError:
         """Translate HTTP errors into appropriate SDK exceptions."""
         status_code = error.response.status_code if error.response else 0
         response_body = error.response.text if error.response else None
+        retry_after = self._parse_retry_after(error.response)
 
         if status_code == 401:
-            raise UAIError(
-                f"Authentication failed for provider '{provider}': {response_body}"
+            raise UAIAuthenticationError(
+                f"Authentication failed for provider '{provider}': {response_body}",
+                provider=provider,
+                status_code=status_code,
+                response_body=response_body,
             ) from error
         elif status_code == 429:
-            raise UAIError(
-                f"Rate limit exceeded for provider '{provider}': {response_body}"
+            raise UAIRateLimitError(
+                f"Rate limit exceeded for provider '{provider}': {response_body}",
+                provider=provider,
+                status_code=status_code,
+                response_body=response_body,
+                retry_after=retry_after,
             ) from error
         elif status_code >= 500:
-            raise UAIError(f"Server error from provider '{provider}': {response_body}") from error
+            raise UAIError(
+                f"Server error from provider '{provider}': {response_body}",
+                provider=provider,
+                status_code=status_code,
+                response_body=response_body,
+            ) from error
         else:
             raise UAIError(
-                f"HTTP error {status_code} from provider '{provider}': {response_body}"
+                f"HTTP error {status_code} from provider '{provider}': {response_body}",
+                provider=provider,
+                status_code=status_code,
+                response_body=response_body,
             ) from error

@@ -74,18 +74,31 @@ class FeatureNotSupportedError(UAIError):
         feature: str | None = None,
         provider: str | None = None,
         model: str | None = None,
+        supported_features: list[str] | None = None,
     ) -> None:
         self.feature = feature
+        self.supported_features = supported_features
         full_msg = message or f"Feature '{feature}' is not supported"
         if provider:
             full_msg += f" by provider '{provider}'"
         if model:
             full_msg += f" (model '{model}')"
+        if supported_features:
+            full_msg += f". Supported features: {', '.join(supported_features)}"
         super().__init__(full_msg, provider=provider, model=model)
 
 
 class UAITimeoutError(UAIError):
     """Raised when a request exceeds its configured timeout."""
+
+
+class UAICircuitOpenError(UAIError):
+    """
+    Raised when a circuit breaker rejects a request while its circuit is open.
+
+    Indicates the provider has sustained repeated failures and is being
+    fast-failed until the breaker's reset timeout elapses (Module 1.4.2).
+    """
 
 
 class ConfigError(UAIError):

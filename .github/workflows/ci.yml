@@ -94,7 +94,9 @@ jobs:
 
       - name: Run performance regression tests
         if: ${{ hashFiles('tests/performance/**/test_*.py') != '' }}
-        run: poetry run pytest tests/performance -v --benchmark-only --benchmark-disable
+        run: poetry run pytest tests/performance -v --tb=short
+        env:
+          UAI_PERF_MEMORY: "1"
 
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.12'

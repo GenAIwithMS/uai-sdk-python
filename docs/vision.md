@@ -38,15 +38,29 @@ print(response.content)
 
 ## Capability gating
 
-Providers/models that do not advertise `vision: True` raise
-`FeatureNotSupportedError`. Use `check_capability` to verify before calling:
+`client.chat()` enforces the capability matrix (Module 1.3.1) **before** any
+network or middleware work: if any message carries an `ImageContent` block
+and the target model does not advertise `vision`, the client raises
+`FeatureNotSupportedError` instantly, before the middleware pipeline or
+network is reached.
+
+Pre-flight checks are also available if you want to choose a model before
+building the request:
 
 ```python
+client = UniversalAI(api_key="...", provider="qwen")
+client.supports("vision", model="qwen-vl-max")   # -> True
+
 from uai.registry import check_capability
 check_capability("qwen", "qwen-vl-max", "vision")  # raises if unsupported
 ```
 
 ## Unsupported providers
 
-DeepSeek, GLM, and Kimi do not expose vision models; calling them with an
-image content block raises `FeatureNotSupportedError`.
+DeepSeek, GLM, and Kimi do not expose vision models. Sending image content
+to a text-only model raises `FeatureNotSupportedError` immediately — the
+request never reaches the network. To switch providers on the fly:
+
+```python
+client.chat(messages=..., provider="qwen", model="qwen-vl-max")
+```

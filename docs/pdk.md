@@ -10,8 +10,7 @@ The PDK provides tooling and templates to help contributors add new LLM provider
 
 1. **Implement adapter**
 
-   Create `src/uai/adapters/foo.py` and export it from
-   `src/uai/adapters/__init__.py`:
+   Create `src/uai/adapters/foo.py`:
 
    ```python
    from uai.adapters.base_adapter import BaseProviderAdapter
@@ -37,23 +36,10 @@ The PDK provides tooling and templates to help contributors add new LLM provider
        ) -> Iterator[StreamChunk]:
            ...  # SSE parsing, TTFT, usage
 
-def translate_error(self, status_code: int, error_body: Any) -> Exception:
-            ...  # provider errors -> UAIError subclasses
+       def translate_error(self, status_code: int, error_body: Any) -> Exception:
+           ...  # provider errors -> UAIError subclasses
 
-        # Optional: embeddings & rerank
-        #
-        # Embeddings share the OpenAI-compatible schema by default, so the
-        # base class already provides format_embed_request() and
-        # parse_embed_response(). Only override when the provider differs.
-        # def format_embed_request(self, model, texts): ...
-        # def parse_embed_response(self, response, model) -> EmbeddingsResponse: ...
-
-        # Rerank is not a standardized schema; override BOTH methods to enable
-        # it, otherwise the base class raises FeatureNotSupportedError.
-        # def format_rerank_request(self, model, query, documents): ...
-        # def parse_rerank_response(self, response, model) -> RerankResponse: ...
-
-        def capabilities(self) -> dict[str, bool]:
+       def capabilities(self) -> dict[str, bool]:
            return {
                "chat": True,
                "streaming": True,
@@ -69,6 +55,38 @@ def translate_error(self, status_code: int, error_body: Any) -> Exception:
    ```
 
    Adapters are **synchronous** — no `async` keywords.
+
+   **Register the adapter** (Module 1.6.1 lazy loading — there is no eager
+   import list):
+
+   - Add a `"FooAdapter": ("uai.adapters.foo", "FooAdapter")` entry to the
+     `_LAZY` spec map in `src/uai/adapters/__init__.py` and to its `__all__`.
+   - Add a `"foo": ("uai.adapters.foo", "FooAdapter")` entry to
+     `_ADAPTER_SPECS` in `src/uai/client.py` so the client can resolve the
+     adapter by provider name on first use.
+
+   ```python
+   # src/uai/adapters/__init__.py
+   _LAZY = {
+       ...,
+       "FooAdapter": ("uai.adapters.foo", "FooAdapter"),
+   }
+
+   # src/uai/client.py
+   _ADAPTER_SPECS = {
+       ...,
+       "foo": ("uai.adapters.foo", "FooAdapter"),
+   }
+   ```
+
+   Optional hooks (from `BaseProviderAdapter`):
+
+   - Embeddings share the OpenAI-compatible schema by default, so the base
+     class already provides `format_embed_request()` and
+     `parse_embed_response()`. Only override when the provider differs.
+   - Rerank is not a standardized schema; override BOTH
+     `format_rerank_request()` and `parse_rerank_response()` to enable it,
+     otherwise the base class raises `FeatureNotSupportedError`.
 
 2. **Register provider**
 
@@ -94,7 +112,11 @@ def translate_error(self, status_code: int, error_body: Any) -> Exception:
    - Unit: `tests/unit/test_adapters_foo.py` (mirror `test_adapters_kimi.py` /
      `test_adapters_stepfun.py` for the full auth / format / parse / streaming
      / error / capabilities coverage)
-   - Integration: use local mock server in `tests/integration/`
+   - Integration: spin up the in-process mock provider server
+     (`uai.testing.MockProviderServer`, Module 1.6) and drive the adapter
+     through `UniversalAI` with `UAI_PROVIDER_FOO_BASE_URL` pointed at it,
+     exactly like `tests/unit/test_testing.py` and the `tests/performance/`
+     KPI suite do.
 
 4. **Document** in `docs/providers.md`.
 
@@ -102,7 +124,10 @@ def translate_error(self, status_code: int, error_body: Any) -> Exception:
 
 The PDK enforces adapter contracts through:
 - Pydantic schema validation of `ProviderConfig`
-- Capability matrix checks before every call (`FeatureNotSupportedError`)
+- Capability checks before chat/streaming/tools/vision/embedding/rerank
+  calls (`FeatureNotSupportedError`) — the client merges the registry model
+  capabilities with your adapter's `capabilities()` matrix, so a mismatch
+  between the two is caught immediately (Module 1.3.1)
 - Adapter unit tests covering every contract method
 
 ## Versioning

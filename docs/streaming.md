@@ -1,16 +1,12 @@
 # Streaming
 
-> Stub — content to be written.
-
-## Overview
-
-Streaming returns response chunks as Server-Sent Events (SSE) flow in from the provider, enabling real-time UI updates.
+> Streaming returns response chunks as Server-Sent Events (SSE) flow in from the provider, enabling real-time UI updates.
 
 ## Usage
 
 ```python
 chunks = client.chat(
-    prompt="Write a 5-paragraph essay.",
+    messages=[{"role": "user", "content": "Write a 5-paragraph essay."}],
     model="qwen-plus",
     stream=True,
 )
@@ -22,24 +18,46 @@ print()  # newline at end
 print(f"Finish reason: {chunk.finish_reason}")
 ```
 
+With `stream=True`, `client.chat()` returns an **iterator of `StreamChunk`
+objects**. Each chunk carries a delta of text content, and the final chunk
+has `is_final=True` and a `finish_reason`. A `stream_callback` can be passed
+instead of iterating:
+
+```python
+client.chat(
+    messages=[{"role": "user", "content": "Hello"}],
+    stream=True,
+    stream_callback=lambda chunk: print(chunk.content, end="", flush=True),
+)
+```
+
 ## Time-To-First-Token (TTFT)
 
-Each chunk exposes timing metadata:
+The **first chunk that carries content** also exposes timing metadata:
 
 ```python
 for chunk in streaming_response:
-    print(f"  TTFB chunk: {chunk.ttft_ms}ms")
+    if chunk.ttft_ms is not None:
+        print(f"TTFT: {chunk.ttft_ms}ms")
+        break
 ```
+
+`ttft_ms` (time-to-first-token, in milliseconds) is populated only on the
+first content chunk; subsequent chunks report `None`.
 
 ## Aggregation
 
-Set `aggregate=True` to collect the full response at the end:
+There is no built-in `aggregate` flag — assemble the full text by
+accumulating chunk content yourself:
 
 ```python
-full = client.chat(
-    prompt="Hello",
+full_text = ""
+for chunk in client.chat(
+    messages=[{"role": "user", "content": "Hello"}],
     stream=True,
-    aggregate=True,
-)
-print(full.content)  # full assembled text
+):
+    if chunk.content:
+        full_text += chunk.content
+
+print(full_text)
 ```
