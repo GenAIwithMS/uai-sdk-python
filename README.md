@@ -28,26 +28,32 @@ pip install uai-sdk
 ```python
 from uai import UniversalAI
 
-client = UniversalAI(
-    providers=["deepseek", "qwen"],
-    api_keys={"deepseek": "sk-...", "qwen": "sk-..."},
-)
+# One client per provider; the SDK reads DEEPSEEK_API_KEY from the
+# environment if api_key is omitted.
+client = UniversalAI(provider="deepseek", model="deepseek-chat")
 
 # Chat
 result = client.chat(
-    prompt="Translate to English: 你好",
-    model="deepseek-chat",
+    messages=[{"role": "user", "content": "Translate to English: 你好"}],
 )
 print(result.content)
 
 # Streaming
-for chunk in client.chat(prompt="Tell me a story...", stream=True):
+for chunk in client.chat(
+    messages=[{"role": "user", "content": "Tell me a story..."}],
+    stream=True,
+):
     print(chunk.content, end="", flush=True)
 
-# Structured output
+# Structured output (validated by the provider adapter; see docs/structured_output.md)
+from pydantic import BaseModel
+
+class KeyPoints(BaseModel):
+    points: list[str]
+
 result = client.chat(
-    prompt="Extract the key points",
-    output_schema=MyPydanticModel,
+    messages=[{"role": "user", "content": "Extract the key points"}],
+    output_schema=KeyPoints,
 )
 print(result.parsed)
 ```
@@ -58,11 +64,12 @@ print(result.parsed)
 - ✅ Chat, streaming, tool-calling, structured outputs
 - ✅ Embeddings (`client.embed`) and rerank (`client.rerank`) via provider adapters
 - ✅ Vision via chat content blocks (image_url) on vision-capable models
-- ✅ Modular middleware (retry, cache, logging, tracing)
 - ✅ Provider adapters with strict capability enforcement
-- ✅ OpenTelemetry metrics and tracing
+- ✅ Opt-in middleware — retry, cache, logging, tracing (`client.use(...)`)
+- ✅ Benchmark CLI covering all chat models (`uai benchmark`)
 - ✅ Security-first design (no secret logging, input validation)
 - ✅ Extensible — easily add new providers via the [PDK](docs/pdk.md)
+- ⏳ Telemetry metrics (OpenTelemetry) — **not yet implemented** (roadmap)
 - ⏳ Audio / TTS / transcription — **not yet implemented** (deferred)
 
 ## Supported Providers
@@ -84,14 +91,15 @@ print(result.parsed)
 
 - [Architecture](docs/architecture.md) — middleware pipeline, adapter contract, UnifiedRequest lifecycle
 - [Chat](docs/chat.md) — conversational completions, history management, system prompts
-- [Streaming](docs/streaming.md) — SSE handling, TTFT, chunk aggregation
-- [Tools](docs/tools.md) — function calling & MCP integration
+- [Streaming](docs/streaming.md) — SSE handling and TTFT
+- [Tools](docs/tools.md) — function calling with OpenAI-style tool definitions
 - [Embeddings](docs/embeddings.md) — text embedding operations via adapters
 - [Vision](docs/vision.md) — multimodal image interpretation via chat content blocks
 - [Rerank](docs/rerank.md) — document ranking (Qwen, GLM)
 - [Structured Output](docs/structured_output.md) — schema validation & parsing
-- [Middleware](docs/middleware.md) — creating and composing interceptors
-- [Telemetry](docs/telemetry.md) — OpenTelemetry, Prometheus, metric conventions
+- [Middleware](docs/middleware.md) — creating and composing interceptors (retry, cache, logging, tracing)
+- [Benchmark](docs/benchmark.md) — offline benchmarking CLI covering all models
+- [Telemetry](docs/telemetry.md) — OpenTelemetry, Prometheus, metric conventions (roadmap)
 - [Configuration](docs/configuration.md) — env vars, YAML config, API key management
 - [PDK](docs/pdk.md) — Provider Development Kit guide
 

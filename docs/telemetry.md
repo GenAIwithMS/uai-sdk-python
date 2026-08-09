@@ -33,12 +33,19 @@ Each LLM invocation generates a span annotated with GenAI semantic attributes:
 
 ## Enabling Telemetry
 
+> **Note:** Telemetry *metrics* are a roadmap item — no OpenTelemetry
+> metric/export wiring exists in the SDK yet. Tracing per-call spans is
+> available today via `TracingMiddleware` (see [middleware.md](middleware.md));
+> the example below shows the intended opt-in surface. The client
+> constructor accepts only `api_key`, `provider`, `model`, `credentials`,
+> `timeout`, and `max_retries`.
+
 ```python
 from uai import UniversalAI
 
 client = UniversalAI(
-    providers=["deepseek"],
-    api_keys={"deepseek": "..."},
-    enable_telemetry=True,  # opt-in
+    api_key="...",
+    provider="deepseek",
+    # enable_telemetry=True  # planned (not yet implemented)
 )
 ```

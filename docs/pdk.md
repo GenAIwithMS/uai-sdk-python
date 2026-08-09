@@ -37,23 +37,10 @@ The PDK provides tooling and templates to help contributors add new LLM provider
        ) -> Iterator[StreamChunk]:
            ...  # SSE parsing, TTFT, usage
 
-def translate_error(self, status_code: int, error_body: Any) -> Exception:
-            ...  # provider errors -> UAIError subclasses
+       def translate_error(self, status_code: int, error_body: Any) -> Exception:
+           ...  # provider errors -> UAIError subclasses
 
-        # Optional: embeddings & rerank
-        #
-        # Embeddings share the OpenAI-compatible schema by default, so the
-        # base class already provides format_embed_request() and
-        # parse_embed_response(). Only override when the provider differs.
-        # def format_embed_request(self, model, texts): ...
-        # def parse_embed_response(self, response, model) -> EmbeddingsResponse: ...
-
-        # Rerank is not a standardized schema; override BOTH methods to enable
-        # it, otherwise the base class raises FeatureNotSupportedError.
-        # def format_rerank_request(self, model, query, documents): ...
-        # def parse_rerank_response(self, response, model) -> RerankResponse: ...
-
-        def capabilities(self) -> dict[str, bool]:
+       def capabilities(self) -> dict[str, bool]:
            return {
                "chat": True,
                "streaming": True,
@@ -69,6 +56,15 @@ def translate_error(self, status_code: int, error_body: Any) -> Exception:
    ```
 
    Adapters are **synchronous** — no `async` keywords.
+
+   Optional hooks (from `BaseProviderAdapter`):
+
+   - Embeddings share the OpenAI-compatible schema by default, so the base
+     class already provides `format_embed_request()` and
+     `parse_embed_response()`. Only override when the provider differs.
+   - Rerank is not a standardized schema; override BOTH
+     `format_rerank_request()` and `parse_rerank_response()` to enable it,
+     otherwise the base class raises `FeatureNotSupportedError`.
 
 2. **Register provider**
 
@@ -102,7 +98,8 @@ def translate_error(self, status_code: int, error_body: Any) -> Exception:
 
 The PDK enforces adapter contracts through:
 - Pydantic schema validation of `ProviderConfig`
-- Capability matrix checks before every call (`FeatureNotSupportedError`)
+- Capability checks before chat/streaming/embedding/rerank calls
+  (`FeatureNotSupportedError`)
 - Adapter unit tests covering every contract method
 
 ## Versioning

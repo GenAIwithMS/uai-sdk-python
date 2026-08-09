@@ -15,6 +15,14 @@ from uai.exceptions import (
     UAINetworkError,
     UAIRateLimitError,
 )
+from uai.middleware import (
+    BaseMiddleware,
+    CacheMiddleware,
+    LoggingMiddleware,
+    RetryMiddleware,
+    SpanRecorder,
+    TracingMiddleware,
+)
 from uai.models import (
     ChatMessage,
     FinishReason,
@@ -32,17 +40,23 @@ from uai.models import (
 
 __version__ = "0.1.0"
 __all__ = [
+    "BaseMiddleware",
+    "CacheMiddleware",
     "ChatMessage",
     "FeatureNotSupportedError",
     "FinishReason",
     "FunctionCall",
     "FunctionDefinition",
+    "LoggingMiddleware",
     "ResponseParsingError",
+    "RetryMiddleware",
     "Role",
+    "SpanRecorder",
     "StreamChunk",
     "ToolCall",
     "ToolCallMode",
     "ToolDefinition",
+    "TracingMiddleware",
     "UAIAuthenticationError",
     "UAIError",
     "UAIErrorGroup",

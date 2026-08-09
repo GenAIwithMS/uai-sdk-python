@@ -28,7 +28,15 @@ from uai.adapters.kimi import KimiAdapter
 from uai.adapters.minimax import MiniMaxAdapter
 from uai.adapters.qwen import QwenAdapter
 from uai.adapters.stepfun import StepFunAdapter
-from uai.exceptions import FeatureNotSupportedError, UAIError
+from uai.exceptions import (
+    FeatureNotSupportedError,
+    UAIAuthenticationError,
+    UAIError,
+    UAINetworkError,
+    UAIRateLimitError,
+    UAITimeoutError,
+)
+from uai.middleware.base import BaseMiddleware, MiddlewareContext
 from uai.models import (
     ChatMessage,
     EmbeddingsResponse,
@@ -125,11 +133,125 @@ class UniversalAI:
         self._default_model = model or self._config.default_model
 
         self._adapters: dict[str, BaseProviderAdapter] = {}
+        self._middleware: list[BaseMiddleware] = []
 
         logger.debug(
             f"UniversalAI client initialized with provider={self._default_provider}, "
             f"model={self._default_model}"
         )
+
+    def use(self, middleware: BaseMiddleware | list[BaseMiddleware]) -> UniversalAI:
+        """
+        Register one or more middleware instances (opt-in pipeline).
+
+        Middleware hooks run in registration order for ``before_request``
+        and in reverse order for ``after_response``/``on_error``.
+
+        Args:
+            middleware: A single middleware or a list of middleware.
+
+        Returns:
+            The client, for chaining.
+        """
+        items = middleware if isinstance(middleware, (list, tuple)) else [middleware]
+        for item in items:
+            if not isinstance(item, BaseMiddleware):
+                raise TypeError(f"Expected BaseMiddleware, got {type(item).__name__}")
+            self._middleware.append(item)
+        return self
+
+    def _chain_call(
+        self,
+        execute_fn: Callable[[MiddlewareContext], Any],
+        context: MiddlewareContext,
+    ) -> Any:
+        """Compose the middleware ``execute`` chain around *execute_fn*."""
+        middleware = self._middleware
+
+        def call(index: int) -> Any:
+            if index >= len(middleware):
+                # Read the request from the context so that before_request
+                # hooks that return a *new* request object take effect.
+                return execute_fn(context)
+            return middleware[index].execute(lambda: call(index + 1), context)
+
+        return call(0)
+
+    def _run_pipeline(
+        self,
+        operation: str,
+        provider: str,
+        model: str,
+        request: Any,
+        execute_fn: Callable[[MiddlewareContext], Any],
+    ) -> Any:
+        """Run before -> execute -> after around a non-streaming callable."""
+        context = MiddlewareContext(
+            operation=operation,
+            provider=provider,
+            model=model,
+            request=request,
+        )
+        for mw in self._middleware:
+            request = mw.before_request(request, context)
+            context.request = request
+        try:
+            response = self._chain_call(execute_fn, context)
+        except Exception as error:  # middleware boundary
+            context.error = error
+            for mw in reversed(self._middleware):
+                mw.on_error(error, context)
+            raise
+        for mw in reversed(self._middleware):
+            response = mw.after_response(response, context)
+        return response
+
+    def _run_stream_pipeline(
+        self,
+        operation: str,
+        provider: str,
+        model: str,
+        request: Any,
+        stream_fn: Callable[[MiddlewareContext], Any],
+    ) -> Any:
+        """Run before -> execute around a streaming callable; after on finish."""
+        context = MiddlewareContext(
+            operation=operation,
+            provider=provider,
+            model=model,
+            request=request,
+        )
+        for mw in self._middleware:
+            request = mw.before_request(request, context)
+            context.request = request
+        generator = self._chain_call(stream_fn, context)
+        return self._wrap_stream(generator, context)
+
+    def _wrap_stream(self, generator: Iterator[Any], context: MiddlewareContext) -> Iterator[Any]:
+        """
+        Wrap a stream generator so middleware hooks always run.
+
+        ``after_response`` runs on clean completion (even for an empty
+        stream, with ``None``); ``on_error`` runs on failure and
+        ``after_response`` is skipped so the error status recorded by
+        ``on_error`` is not overwritten.
+        """
+        last: Any = None
+        failed = False
+        try:
+            for chunk in generator:
+                last = chunk
+                yield chunk
+        except Exception as error:  # middleware boundary
+            failed = True
+            context.error = error
+            for mw in reversed(self._middleware):
+                mw.on_error(error, context)
+            raise
+        finally:
+            if not failed:
+                for mw in reversed(self._middleware):
+                    last = mw.after_response(last, context)
 
     def _get_adapter(self, provider_lower: str) -> BaseProviderAdapter:
         """Return the adapter instance for a provider, creating it lazily."""
@@ -224,11 +346,53 @@ class UniversalAI:
             if hasattr(request, key) and value is not None:
                 setattr(request, key, value)
 
+        operation_provider = request.provider or self._default_provider
+        operation_model = request.model or self._default_model
+
         if stream:
-            return self._execute_streaming_chat(request, stream_callback)
-        return self._execute_chat(request)
+            return self._run_stream_pipeline(
+                "chat",
+                operation_provider,
+                operation_model,
+                request,
+                lambda ctx: self._execute_streaming_chat(ctx.request, stream_callback),
+            )
+        return self._run_pipeline(
+            "chat",
+            operation_provider,
+            operation_model,
+            request,
+            lambda ctx: self._execute_chat(ctx.request),
+        )
 
     def embed(
+        self,
+        text: str | list[str],
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> EmbeddingsResponse:
+        """
+        Generate embeddings for one or more input texts.
+
+        Routed through the registered middleware pipeline (if any).
+
+        Args:
+            text: A single text or a list of texts to embed.
+            provider: Target provider (uses default if not specified).
+            model: Embedding model name (uses default if not specified).
+
+        Returns:
+            An ``EmbeddingsResponse`` with one vector per input text.
+        """
+        return self._run_pipeline(
+            "embed",
+            (provider or self._default_provider).lower(),
+            model or self._default_model,
+            None,
+            lambda _ctx: self._embed_request(text, provider, model),
+        )
+
+    def _embed_request(
         self,
         text: str | list[str],
         provider: str | None = None,
@@ -287,9 +451,9 @@ class UniversalAI:
         except httpx.HTTPStatusError as e:
             raise self._handle_http_error(e, provider_lower) from e
         except httpx.TimeoutException as e:
-            raise UAIError(f"Request timeout: {e}") from e
+            raise UAITimeoutError(f"Request timeout: {e}", provider=provider_lower) from e
         except httpx.RequestError as e:
-            raise UAIError(f"Network error: {e}") from e
+            raise UAINetworkError(f"Network error: {e}", provider=provider_lower) from e
 
         result = adapter.parse_embed_response(response.json(), resolved_id)
         if result.provider is None:
@@ -297,6 +461,35 @@ class UniversalAI:
         return result
 
     def rerank(
+        self,
+        query: str,
+        documents: list[str],
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> RerankResponse:
+        """
+        Rank documents by relevance to a query.
+
+        Routed through the registered middleware pipeline (if any).
+
+        Args:
+            query: The query text to rank documents against.
+            documents: The candidate documents to rerank.
+            provider: Provider name (uses default if not specified).
+            model: Rerank model name (uses default if not specified).
+
+        Returns:
+            A RerankResponse with documents ordered by descending relevance.
+        """
+        return self._run_pipeline(
+            "rerank",
+            (provider or self._default_provider).lower(),
+            model or self._default_model,
+            None,
+            lambda _ctx: self._rerank_request(query, documents, provider, model),
+        )
+
+    def _rerank_request(
         self,
         query: str,
         documents: list[str],
@@ -356,9 +549,9 @@ class UniversalAI:
         except httpx.HTTPStatusError as e:
             raise self._handle_http_error(e, provider_lower) from e
         except httpx.TimeoutException as e:
-            raise UAIError(f"Request timeout: {e}") from e
+            raise UAITimeoutError(f"Request timeout: {e}", provider=provider_lower) from e
         except httpx.RequestError as e:
-            raise UAIError(f"Network error: {e}") from e
+            raise UAINetworkError(f"Network error: {e}", provider=provider_lower) from e
 
         result = adapter.parse_rerank_response(response.json(), resolved_id)
         if result.provider is None:
@@ -444,9 +637,9 @@ class UniversalAI:
         except httpx.HTTPStatusError as e:
             raise self._handle_http_error(e, provider_lower) from e
         except httpx.TimeoutException as e:
-            raise UAIError(f"Request timeout: {e}") from e
+            raise UAITimeoutError(f"Request timeout: {e}", provider=provider_lower) from e
         except httpx.RequestError as e:
-            raise UAIError(f"Network error: {e}") from e
+            raise UAINetworkError(f"Network error: {e}", provider=provider_lower) from e
 
         data = response.json()
         return self._parse_chat_response(data, provider_lower, resolved_id, start_time)
@@ -589,6 +782,17 @@ class UniversalAI:
                     if chunk_id:
                         seen_ids.add(chunk_id)
 
+                    # Extract usage (some providers send it on the final chunk)
+                    usage = None
+                    usage_dict = chunk_data.get("usage")
+                    if usage_dict:
+                        usage = UsageMetrics(
+                            input_tokens=usage_dict.get("prompt_tokens", 0),
+                            output_tokens=usage_dict.get("completion_tokens", 0),
+                            cache_read_tokens=usage_dict.get("cache_read_input_tokens"),
+                            cache_write_tokens=usage_dict.get("cache_creation_input_tokens"),
+                        )
+
                     chunk = StreamChunk(
                         content=content if content else None,
                         tool_calls=tool_calls,
@@ -596,6 +800,7 @@ class UniversalAI:
                         id=actual_id,
                         model=resolved_id,
                         provider=provider_lower,
+                        usage=usage,
                         is_final=finish_reason is not None,
                         ttft_ms=ttft_ms,
                     )
@@ -608,7 +813,9 @@ class UniversalAI:
                     if finish_reason:
                         break
         except httpx.RequestError as e:
-            raise UAIError(f"Network error during streaming: {e}") from e
+            raise UAINetworkError(
+                f"Network error during streaming: {e}", provider=provider_lower
+            ) from e
 
     def _parse_chat_response(
         self,
@@ -679,22 +886,51 @@ class UniversalAI:
             raw=data,
         )
 
+    @staticmethod
+    def _parse_retry_after(response: httpx.Response | None) -> float | None:
+        """Parse the ``Retry-After`` header (seconds) if present."""
+        if response is None:
+            return None
+        value = response.headers.get("Retry-After")
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except ValueError:
+            return None
+
     def _handle_http_error(self, error: httpx.HTTPStatusError, provider: str) -> UAIError:
         """Translate HTTP errors into appropriate SDK exceptions."""
         status_code = error.response.status_code if error.response else 0
         response_body = error.response.text if error.response else None
+        retry_after = self._parse_retry_after(error.response)
 
         if status_code == 401:
-            raise UAIError(
-                f"Authentication failed for provider '{provider}': {response_body}"
+            raise UAIAuthenticationError(
+                f"Authentication failed for provider '{provider}': {response_body}",
+                provider=provider,
+                status_code=status_code,
+                response_body=response_body,
             ) from error
         elif status_code == 429:
-            raise UAIError(
-                f"Rate limit exceeded for provider '{provider}': {response_body}"
+            raise UAIRateLimitError(
+                f"Rate limit exceeded for provider '{provider}': {response_body}",
+                provider=provider,
+                status_code=status_code,
+                response_body=response_body,
+                retry_after=retry_after,
             ) from error
         elif status_code >= 500:
-            raise UAIError(f"Server error from provider '{provider}': {response_body}") from error
+            raise UAIError(
+                f"Server error from provider '{provider}': {response_body}",
+                provider=provider,
+                status_code=status_code,
+                response_body=response_body,
+            ) from error
         else:
             raise UAIError(
-                f"HTTP error {status_code} from provider '{provider}': {response_body}"
+                f"HTTP error {status_code} from provider '{provider}': {response_body}",
+                provider=provider,
+                status_code=status_code,
+                response_body=response_body,
             ) from error

@@ -78,6 +78,10 @@ client = UniversalAI(provider="deepseek", model="deepseek-chat")
 response = client.chat(messages=[{"role": "user", "content": "Hello"}])
 ```
 
+Optional middleware is registered explicitly via `client.use(...)` and wraps
+requests with cross-cutting concerns (retry, cache, logging, tracing). See
+[middleware.md](middleware.md).
+
 ### Integration
 
 Users interact with the SDK through the `UniversalAI.chat()` method:

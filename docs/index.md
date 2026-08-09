@@ -4,7 +4,8 @@
 
 This is the central documentation hub for the **Universal AI Provider SDK (uai-sdk-python)**.
 
-> **Note:** This doc index is a stub created during project scaffolding. Content for each sub-topic will be fleshed out as features are implemented according to the phased roadmap. See [README.md](../README.md#roadmap).
+> **Note:** Telemetry (OpenTelemetry metrics) is a roadmap item that is not
+> yet implemented; tracing is available via the `TracingMiddleware`.
 
 ## Getting Started
 
@@ -14,13 +15,13 @@ This is the central documentation hub for the **Universal AI Provider SDK (uai-s
 ## API Reference
 
 - [Chat](chat.md) — Text-in/text-out conversational completions, history, system prompts
-- [Structured Output](structured_output.md) — JSON schema enforcement via Pydantic
-- [Streaming](streaming.md) — Server-Sent Events, TTFT, chunk aggregation
-- [Tools](tools.md) — Function calling & Model Context Protocol (MCP) integration
+- [Structured Output](structured_output.md) — Pydantic-validated structured output
+- [Streaming](streaming.md) — Server-Sent Events and TTFT
+- [Tools](tools.md) — Function calling with OpenAI-style tool definitions
 - [Embeddings](embeddings.md) — Text embedding operations, routed via provider adapters
 - [Vision](vision.md) — Multi-modal image interpretation, routed via chat content blocks
 - [Rerank](rerank.md) — Document ranking via provider adapters (Qwen, GLM)
-- [Benchmark CLI](benchmark.md) — Offline benchmarking tool
+- [Benchmark CLI](benchmark.md) — Offline benchmarking tool (`uai benchmark`)
 
 > **Audio / voice / TTS / transcription** are **not** implemented yet. As
 > previously decided, they are deferred (a large, MiniMax-focused lift); all
@@ -28,8 +29,9 @@ This is the central documentation hub for the **Universal AI Provider SDK (uai-s
 
 ## Developer Guide
 
-- [Middleware](middleware.md) — Creating and composing interceptors (Cache, Retry, Logging, Routing)
-- [Telemetry](telemetry.md) — OpenTelemetry integration, Prometheus metric conventions
+- [Middleware](middleware.md) — Creating and composing interceptors (Cache, Retry, Logging, Tracing)
+- [Benchmark](benchmark.md) — Offline benchmarking CLI covering all models
+- [Telemetry](telemetry.md) — OpenTelemetry integration, Prometheus metric conventions (roadmap)
 - [PDK](pdk.md) — Provider Development Kit: adding a new provider adapter
 - [Providers](providers.md) — Capability matrix & provider-specific notes
 
