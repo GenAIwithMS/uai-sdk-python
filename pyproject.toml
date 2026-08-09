@@ -6,9 +6,6 @@ authors = ["UAI SDK Contributors"]
 license = "Apache-2.0"
 readme = "README.md"
 packages = [{ include = "uai", from = "src" }]
-
-[tool.poetry.scripts]
-uai = "uai.cli:main"
 repository = "https://github.com/uai-sdk/uai-sdk-python"
 documentation = "https://github.com/uai-sdk/uai-sdk-python"
 keywords = ["ai", "llm", "sdk", "multi-provider", "deepseek", "qwen"]
@@ -23,6 +20,9 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
+
+[tool.poetry.scripts]
+uai = "uai.cli:main"
 
 [tool.poetry.dependencies]
 python = "^3.9"
