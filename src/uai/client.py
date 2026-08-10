@@ -32,6 +32,7 @@ from uai.exceptions import (
 )
 from uai.middleware.base import BaseMiddleware, MiddlewareContext
 from uai.middleware.engine import MiddlewareEngine
+from uai.middleware.retry import RetryMiddleware
 from uai.models import (
     ChatMessage,
     EmbeddingsResponse,
@@ -99,8 +100,14 @@ class UniversalAI:
             model: Default model to use.
             credentials: Credential dictionary for *provider*. Same scoping as
                 ``api_key``.
-            timeout: Request timeout in seconds.
-            max_retries: Maximum retry attempts.
+            timeout: Request timeout in seconds. Takes precedence over the
+                registry value and over ``UAI_PROVIDER_{NAME}_TIMEOUT``, and
+                applies to every provider this client calls.
+            max_retries: When set above zero, enable automatic retries for
+                transient failures. This is shorthand for registering a
+                :class:`~uai.middleware.retry.RetryMiddleware`, placed inside
+                every middleware added via :meth:`use`. Leave unset for no
+                retries — retrying stays opt-in.
         """
         self._all_configs = apply_env_overrides()
 
@@ -116,10 +123,24 @@ class UniversalAI:
 
         self._config: ProviderConfig = base_config.model_copy()
 
-        if timeout is not None:
-            self._config.timeout = timeout
-        if max_retries is not None:
-            self._config.max_retries = max_retries
+        # Held on the client and applied at the point of use rather than
+        # written into a ProviderConfig.  ``_resolve_model`` hands back shared
+        # registry entries, so mutating one would leak this client's timeout
+        # into every other client in the process, and copying a config per
+        # request would cost more than the <5ms overhead budget allows.
+        self._timeout = timeout
+
+        # ``max_retries`` is shorthand for a RetryMiddleware.  It is composed
+        # innermost (see ``_run_pipeline``) so anything registered through
+        # ``use()`` wraps it -- an open circuit breaker then short-circuits
+        # without consuming attempts, and a cache hit skips retrying entirely.
+        # Retrying stays strictly opt-in: the registry's ``max_retries``
+        # default is never enough to switch it on by itself.
+        self._auto_retry: RetryMiddleware | None = (
+            RetryMiddleware(max_retries=max_retries)
+            if max_retries is not None and max_retries > 0
+            else None
+        )
 
         # Credentials passed to the constructor belong to ``provider`` and to
         # no other.  They are deliberately *not* used as a global fallback:
@@ -150,12 +171,26 @@ class UniversalAI:
         Middleware hooks run in registration order for ``before_request``
         and in reverse order for ``after_response``/``on_error``.
 
+        Registering a :class:`~uai.middleware.retry.RetryMiddleware` here
+        supersedes the constructor's ``max_retries`` shorthand. Composing both
+        would nest two retry loops and multiply the request count, so the
+        explicit middleware wins and the shorthand is dropped.
+
         Args:
             middleware: A single middleware or a list of middleware.
 
         Returns:
             The client, for chaining.
         """
+        items = middleware if isinstance(middleware, list) else [middleware]
+        if self._auto_retry is not None and any(isinstance(m, RetryMiddleware) for m in items):
+            logger.warning(
+                "[uai] a RetryMiddleware was registered explicitly, so the client's "
+                "max_retries=%d is ignored (nesting both would multiply attempts)",
+                self._auto_retry.max_retries,
+            )
+            self._auto_retry = None
+
         self._engine.use(middleware)
         return self
 
@@ -168,7 +203,9 @@ class UniversalAI:
         execute_fn: Callable[[MiddlewareContext], Any],
     ) -> Any:
         """Run before -> execute -> after around a non-streaming callable (Module 1.4.1)."""
-        return self._engine.run(operation, provider, model, request, execute_fn)
+        return self._engine.run(
+            operation, provider, model, request, self._with_auto_retry(execute_fn)
+        )
 
     def _run_stream_pipeline(
         self,
@@ -179,7 +216,31 @@ class UniversalAI:
         stream_fn: Callable[[MiddlewareContext], Any],
     ) -> Any:
         """Run before -> execute around a streaming callable; after on finish (Module 1.4.1)."""
-        return self._engine.run_stream(operation, provider, model, request, stream_fn)
+        return self._engine.run_stream(
+            operation, provider, model, request, self._with_auto_retry(stream_fn)
+        )
+
+    def _with_auto_retry(
+        self, execute_fn: Callable[[MiddlewareContext], Any]
+    ) -> Callable[[MiddlewareContext], Any]:
+        """
+        Wrap *execute_fn* in the constructor's retry policy, if one is set.
+
+        Wrapping the innermost callable — rather than registering the retry in
+        the middleware list — keeps it beneath everything added via
+        :meth:`use`, which is the topology the middleware are documented to
+        expect. ``RetryMiddleware.execute`` dispatches on
+        ``context.request.stream`` itself, so this is correct for streaming
+        and non-streaming operations alike.
+        """
+        auto_retry = self._auto_retry
+        if auto_retry is None:
+            return execute_fn
+
+        def _retrying(context: MiddlewareContext) -> Any:
+            return auto_retry.execute(lambda: execute_fn(context), context)
+
+        return _retrying
 
     def _get_adapter(self, provider_lower: str) -> BaseProviderAdapter:
         """Return the adapter instance for a provider, importing it lazily."""
@@ -194,6 +255,17 @@ class UniversalAI:
             adapter_cls = getattr(importlib.import_module(module_name), class_name)
             self._adapters[provider_lower] = adapter_cls()
         return self._adapters[provider_lower]
+
+    def _timeout_for(self, config: ProviderConfig) -> float:
+        """
+        Resolve the request timeout for *config*'s provider.
+
+        A timeout passed to the constructor takes precedence over the
+        registry value and over ``UAI_PROVIDER_{NAME}_TIMEOUT`` (both of which
+        reach us through ``config``), matching the documented precedence of
+        constructor arguments over environment configuration.
+        """
+        return self._timeout if self._timeout is not None else config.timeout
 
     def _get_api_key(self, config: ProviderConfig) -> str | None:
         """
@@ -462,7 +534,7 @@ class UniversalAI:
                 f"{config.base_url}{adapter.embed_path}",
                 headers=headers,
                 json=body,
-                timeout=config.timeout,
+                timeout=self._timeout_for(config),
             )
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
@@ -565,7 +637,7 @@ class UniversalAI:
                 f"{config.base_url}{adapter.rerank_path}",
                 headers=headers,
                 json=body,
-                timeout=config.timeout,
+                timeout=self._timeout_for(config),
             )
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
@@ -655,7 +727,7 @@ class UniversalAI:
                 f"{config.base_url}/chat/completions",
                 headers=headers,
                 json=body,
-                timeout=config.timeout,
+                timeout=self._timeout_for(config),
             )
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
@@ -757,7 +829,7 @@ class UniversalAI:
                 f"{config.base_url}/chat/completions",
                 headers=headers,
                 json=body,
-                timeout=config.timeout,
+                timeout=self._timeout_for(config),
             ) as response:
                 if response.status_code != 200:
                     raise self._handle_http_error(

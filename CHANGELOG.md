@@ -29,6 +29,13 @@ A correctness, documentation, and packaging-metadata release.
 
   Constructor credentials are now **scoped to the client's default provider**. Any other provider resolves its own key from its `api_key_env_var`, and raises `ValueError` naming that variable when no key is available rather than falling back to an unrelated credential. Covered by regression tests in `tests/unit/test_client_credentials.py`.
 
+### Fixed — client configuration
+
+- **`UniversalAI(timeout=...)` had no effect.** The value was written to an internal `ProviderConfig` copy that no request path reads, so every request used the provider's registry default (30–45 s) regardless of what was passed. The timeout is now resolved at each of the four request sites — chat, streaming chat, `embed()`, and `rerank()` — and takes precedence over both the registry value and `UAI_PROVIDER_{NAME}_TIMEOUT`, matching the documented configuration precedence. It is held on the client rather than written into a config object, because `_resolve_model()` returns shared registry entries that other clients in the same process also read.
+- **`UniversalAI(max_retries=...)` had no effect.** Nothing in the request path consumed it: retries live in `RetryMiddleware`, which takes its own independent count. The parameter now enables retries, as shorthand for registering a `RetryMiddleware`.
+
+  The retry is composed **innermost**, beneath every middleware added through `use()`, which is the topology the middleware are documented to expect — an open circuit breaker short-circuits without consuming attempts, and a cache hit skips retrying entirely. Retrying remains **opt-in**: the `max_retries` value on each provider's registry entry does not switch it on, so behavior is unchanged for anyone not passing the parameter. An explicitly registered `RetryMiddleware` supersedes the shorthand and logs a warning, since composing both would nest two retry loops and multiply the request count.
+
 ### Changed
 
 - API keys are now resolved at call time instead of being captured during construction, so a rotated environment variable takes effect without rebuilding the client.

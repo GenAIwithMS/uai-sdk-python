@@ -291,10 +291,12 @@ client = UniversalAI(
     provider="qwen",
     model="qwen-plus",
     api_key="sk-...",
-    timeout=30.0,
-    max_retries=3,
+    timeout=60.0,       # seconds; overrides the registry and env config
+    max_retries=3,      # enables retries — see below
 )
 ```
+
+`max_retries` is shorthand for registering a `RetryMiddleware`. It is composed **inside** everything you add with `use()`, so a circuit breaker still short-circuits without consuming attempts and a cache hit skips retrying entirely. Leave it unset for no retries — retrying stays opt-in. If you register a `RetryMiddleware` explicitly, that wins and the shorthand is dropped (nesting both would multiply your request count).
 
 <details>
 <summary>Environment variable overrides</summary>

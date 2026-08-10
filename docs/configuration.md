@@ -120,6 +120,43 @@ Any of the following can be set for a provider `NAME` (uppercased, e.g. `DEEPSEE
 
 Invalid values (e.g. a non-numeric timeout) are logged as warnings and skipped.
 
+### Timeouts and retries
+
+`timeout` and `max_retries` can also be passed to the constructor, where they
+take precedence over both the registry defaults and the environment overrides
+above:
+
+```python
+client = UniversalAI(provider="deepseek", timeout=120.0, max_retries=3)
+```
+
+- **`timeout`** is the deadline for a single HTTP request, in seconds. It
+  applies to every provider the client calls, including one reached through a
+  per-call `provider=` override, because it expresses the caller's own
+  deadline rather than a property of the provider.
+- **`max_retries`** enables automatic retries for transient failures — rate
+  limits, network errors, timeouts, and 5xx responses. It is shorthand for
+  registering a [`RetryMiddleware`](middleware.md), composed **inside** every
+  middleware added through `use()`, so an open circuit breaker short-circuits
+  without consuming attempts and a cache hit skips retrying entirely.
+
+Retrying is **opt-in**. Leaving `max_retries` unset means a failed request
+raises immediately; the `max_retries` value carried by each provider's
+registry entry is not sufficient to switch retrying on by itself, and
+`UAI_PROVIDER_{NAME}_MAX_RETRIES` overrides that value rather than enabling
+retries.
+
+For control over backoff, jitter, or which status codes are retryable,
+register the middleware directly instead. An explicitly registered
+`RetryMiddleware` supersedes the constructor shorthand — composing both would
+nest two retry loops and multiply the request count — and a warning is logged
+when that happens:
+
+```python
+client = UniversalAI(provider="deepseek")
+client.use(RetryMiddleware(max_retries=5, base_delay=1.0, jitter=True))
+```
+
 ### Feature flags
 
 Capabilities can be force-disabled across all models of a provider via:
