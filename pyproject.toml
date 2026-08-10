@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "uai-sdk"
-version = "0.1.1"
+version = "0.1.5"
 description = "Universal AI Provider SDK for Python"
 authors = ["UAI SDK Contributors"]
 license = "MIT"
