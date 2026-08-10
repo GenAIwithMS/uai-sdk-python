@@ -3,16 +3,17 @@ name = "uai-sdk"
 version = "0.1.0"
 description = "Universal AI Provider SDK for Python"
 authors = ["UAI SDK Contributors"]
-license = "Apache-2.0"
+license = "MIT"
 readme = "README.md"
 packages = [{ include = "uai", from = "src" }]
-repository = "https://github.com/uai-sdk/uai-sdk-python"
-documentation = "https://github.com/uai-sdk/uai-sdk-python"
+homepage = "https://github.com/GenAIwithMS/uai-sdk-python"
+repository = "https://github.com/GenAIwithMS/uai-sdk-python"
+documentation = "https://github.com/GenAIwithMS/uai-sdk-python/tree/main/docs"
 keywords = ["ai", "llm", "sdk", "multi-provider", "deepseek", "qwen"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
+    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
@@ -20,6 +21,10 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
+
+[tool.poetry.urls]
+"Changelog" = "https://github.com/GenAIwithMS/uai-sdk-python/blob/main/CHANGELOG.md"
+"Issue Tracker" = "https://github.com/GenAIwithMS/uai-sdk-python/issues"
 
 [tool.poetry.scripts]
 uai = "uai.cli:main"
@@ -37,7 +42,7 @@ pytest-asyncio = "^0.21.0"
 pytest-cov = "^4.1.0"
 pytest-mock = "^3.12.0"
 respx = "^0.20.0"
-ruff = "^0.3.0"
+ruff = "0.14.14"
 mypy = "^1.8.0"
 types-PyYAML = "^6.0"
 bandit = "^1.7.0"

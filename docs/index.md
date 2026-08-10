@@ -36,6 +36,8 @@ This is the central documentation hub for the **Universal AI Provider SDK (uai-s
 
 ## Project Links
 
-- [Roadmap](../README.md#roadmap)
+- [Roadmap](../README.md#-roadmap)
+- [Changelog](../CHANGELOG.md)
 - [Contributing](../CONTRIBUTING.md)
+- [Code of Conduct](../CODE_OF_CONDUCT.md)
 - [Issue Labels](../.github/LABELS.md)
