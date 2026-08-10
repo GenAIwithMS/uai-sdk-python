@@ -2,7 +2,7 @@
 
 # Universal AI Provider SDK
 
-**One Python API for eight Chinese LLM providers — with an opt-in middleware pipeline, strict capability enforcement, and zero vendor lock-in.**
+**One consistent Python interface across eight Chinese LLM providers — with an opt-in middleware pipeline, strict capability enforcement, and zero vendor lock-in.**
 
 [![PyPI version](https://img.shields.io/pypi/v/uai-sdk?color=2f7bff&label=pypi&logo=pypi&logoColor=white)](https://pypi.org/project/uai-sdk/)
 [![Python versions](https://img.shields.io/pypi/pyversions/uai-sdk?color=2f7bff&logo=python&logoColor=white)](https://pypi.org/project/uai-sdk/)
@@ -21,18 +21,21 @@
 
 Every Chinese LLM provider ships its own SDK, its own request shape, its own error taxonomy, and its own idea of what "streaming" means. Swapping providers means rewriting your integration layer.
 
-`uai-sdk` collapses all of that into a single, stable surface:
+`uai-sdk` gives all of them one stable surface. You build **one client per provider**, and every client behaves identically:
 
 ```python
-client.chat(messages=[...], provider="deepseek")   # DeepSeek
-client.chat(messages=[...], provider="qwen")       # Qwen — same call, same response type
+deepseek = UniversalAI(provider="deepseek")
+qwen     = UniversalAI(provider="qwen")
+
+deepseek.chat(messages=[...])    # same call signature
+qwen.chat(messages=[...])        # same UnifiedResponse back
 ```
 
-Same `UnifiedRequest` in, same `UnifiedResponse` out. Same exception hierarchy. Same middleware. The adapter layer absorbs the differences.
+Same `UnifiedRequest` in, same `UnifiedResponse` out. Same exception hierarchy. Same middleware. The adapter layer absorbs the differences, so switching providers is a configuration change rather than a rewrite.
 
 | | |
 |---|---|
-| 🔌 **8 providers, 1 API** | DeepSeek, Qwen, GLM, Kimi, StepFun, Doubao, MiniMax, Hunyuan |
+| 🔌 **8 providers, 1 interface** | DeepSeek, Qwen, GLM, Kimi, StepFun, Doubao, MiniMax, Hunyuan |
 | 🛡️ **Fail fast, not late** | The capability matrix rejects unsupported features *before* the network call — no wasted round-trips, no cryptic 400s |
 | 🧩 **Opt-in middleware** | Retry, cache, circuit breaker, logging, metrics, tracing — composed with `client.use(...)`, zero cost when unused |
 | 📐 **Typed end to end** | Pydantic v2 models throughout; `mypy`-clean public surface |
@@ -98,6 +101,8 @@ The API key is read from the provider's environment variable when `api_key` is o
 ```python
 client = UniversalAI(api_key="sk-...", provider="deepseek")
 ```
+
+> **Credentials are scoped to one provider.** An `api_key` you pass to the constructor is used for that client's provider and no other — it is never reused as a fallback for a different one. Build a separate client per provider, each with its own key.
 
 ### Streaming
 
@@ -178,14 +183,15 @@ Send an image to a text-only model and you get `FeatureNotSupportedError` **befo
 ### Embeddings & rerank
 
 ```python
-response = client.embed(["hello world", "你好世界"], provider="qwen", model="text-embedding-v4")
+qwen = UniversalAI(provider="qwen")     # reads DASHSCOPE_API_KEY
+
+response = qwen.embed(["hello world", "你好世界"], model="text-embedding-v4")
 print(response.vectors[0].dimension)
 print(response.vectors[0].values[:5])
 
-ranked = client.rerank(
+ranked = qwen.rerank(
     query="What is machine learning?",
     documents=["ML is a field of AI.", "Paris is in France."],
-    provider="qwen",
     model="qwen-reranker",
 )
 print(ranked.results[0].index)     # most relevant document
@@ -285,10 +291,12 @@ client = UniversalAI(
     provider="qwen",
     model="qwen-plus",
     api_key="sk-...",
-    timeout=30.0,
-    max_retries=3,
+    timeout=60.0,       # seconds; overrides the registry and env config
+    max_retries=3,      # enables retries — see below
 )
 ```
+
+`max_retries` is shorthand for registering a `RetryMiddleware`. It is composed **inside** everything you add with `use()`, so a circuit breaker still short-circuits without consuming attempts and a cache hit skips retrying entirely. Leave it unset for no retries — retrying stays opt-in. If you register a `RetryMiddleware` explicitly, that wins and the shorthand is dropped (nesting both would multiply your request count).
 
 <details>
 <summary>Environment variable overrides</summary>

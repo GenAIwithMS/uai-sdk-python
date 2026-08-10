@@ -21,7 +21,25 @@ Added · Changed · Deprecated · Removed · Fixed · Security
 
 ## [0.1.1] — 2026-08-10
 
-A documentation and packaging-metadata release. **No runtime code changed** — the SDK's behavior, public API, and dependencies are identical to `0.1.0`.
+A correctness, documentation, and packaging-metadata release.
+
+### Security
+
+- **Fixed a credential leak across providers.** `UniversalAI._get_api_key()` returned the credential supplied to the constructor for *any* provider, ignoring which provider was actually being called. A client built as `UniversalAI(api_key="sk-deepseek", provider="deepseek")` that then issued `client.chat(..., provider="qwen")` transmitted the DeepSeek key to DashScope's API in the `Authorization` header — and likewise for `embed()` and `rerank()`, which accept the same `provider=` override.
+
+  Constructor credentials are now **scoped to the client's default provider**. Any other provider resolves its own key from its `api_key_env_var`, and raises `ValueError` naming that variable when no key is available rather than falling back to an unrelated credential. Covered by regression tests in `tests/unit/test_client_credentials.py`.
+
+### Fixed — client configuration
+
+- **`UniversalAI(timeout=...)` had no effect.** The value was written to an internal `ProviderConfig` copy that no request path reads, so every request used the provider's registry default (30–45 s) regardless of what was passed. The timeout is now resolved at each of the four request sites — chat, streaming chat, `embed()`, and `rerank()` — and takes precedence over both the registry value and `UAI_PROVIDER_{NAME}_TIMEOUT`, matching the documented configuration precedence. It is held on the client rather than written into a config object, because `_resolve_model()` returns shared registry entries that other clients in the same process also read.
+- **`UniversalAI(max_retries=...)` had no effect.** Nothing in the request path consumed it: retries live in `RetryMiddleware`, which takes its own independent count. The parameter now enables retries, as shorthand for registering a `RetryMiddleware`.
+
+  The retry is composed **innermost**, beneath every middleware added through `use()`, which is the topology the middleware are documented to expect — an open circuit breaker short-circuits without consuming attempts, and a cache hit skips retrying entirely. Retrying remains **opt-in**: the `max_retries` value on each provider's registry entry does not switch it on, so behavior is unchanged for anyone not passing the parameter. An explicitly registered `RetryMiddleware` supersedes the shorthand and logs a warning, since composing both would nest two retry loops and multiply the request count.
+
+### Changed
+
+- API keys are now resolved at call time instead of being captured during construction, so a rotated environment variable takes effect without rebuilding the client.
+- A `credentials` dict passed to the constructor is copied, so mutating the caller's dict afterwards no longer alters the client's credentials.
 
 ### Fixed
 
@@ -29,6 +47,7 @@ A documentation and packaging-metadata release. **No runtime code changed** — 
 - **Corrected the repository and documentation URLs.** Package metadata pointed at `github.com/uai-sdk/uai-sdk-python`, which does not exist. All links now resolve to the real repository at `github.com/GenAIwithMS/uai-sdk-python`.
 - Removed the "not yet released on PyPI, targeting Q3 2026" notice from the README — the package has been published to PyPI since `0.1.0`.
 - Fixed the roadmap anchor link in `docs/index.md`, which no longer resolved after the README was restructured.
+- Corrected documentation that presented per-call `provider=` switching as the primary usage pattern. The SDK's model is one client per provider; examples in `README.md` and `docs/vision.md` now reflect that, and `docs/configuration.md` documents credential scoping explicitly.
 
 ### Added
 
