@@ -21,7 +21,18 @@ Added · Changed · Deprecated · Removed · Fixed · Security
 
 ## [0.1.1] — 2026-08-10
 
-A documentation and packaging-metadata release. **No runtime code changed** — the SDK's behavior, public API, and dependencies are identical to `0.1.0`.
+A correctness, documentation, and packaging-metadata release.
+
+### Security
+
+- **Fixed a credential leak across providers.** `UniversalAI._get_api_key()` returned the credential supplied to the constructor for *any* provider, ignoring which provider was actually being called. A client built as `UniversalAI(api_key="sk-deepseek", provider="deepseek")` that then issued `client.chat(..., provider="qwen")` transmitted the DeepSeek key to DashScope's API in the `Authorization` header — and likewise for `embed()` and `rerank()`, which accept the same `provider=` override.
+
+  Constructor credentials are now **scoped to the client's default provider**. Any other provider resolves its own key from its `api_key_env_var`, and raises `ValueError` naming that variable when no key is available rather than falling back to an unrelated credential. Covered by regression tests in `tests/unit/test_client_credentials.py`.
+
+### Changed
+
+- API keys are now resolved at call time instead of being captured during construction, so a rotated environment variable takes effect without rebuilding the client.
+- A `credentials` dict passed to the constructor is copied, so mutating the caller's dict afterwards no longer alters the client's credentials.
 
 ### Fixed
 
@@ -29,6 +40,7 @@ A documentation and packaging-metadata release. **No runtime code changed** — 
 - **Corrected the repository and documentation URLs.** Package metadata pointed at `github.com/uai-sdk/uai-sdk-python`, which does not exist. All links now resolve to the real repository at `github.com/GenAIwithMS/uai-sdk-python`.
 - Removed the "not yet released on PyPI, targeting Q3 2026" notice from the README — the package has been published to PyPI since `0.1.0`.
 - Fixed the roadmap anchor link in `docs/index.md`, which no longer resolved after the README was restructured.
+- Corrected documentation that presented per-call `provider=` switching as the primary usage pattern. The SDK's model is one client per provider; examples in `README.md` and `docs/vision.md` now reflect that, and `docs/configuration.md` documents credential scoping explicitly.
 
 ### Added
 

@@ -59,8 +59,15 @@ check_capability("qwen", "qwen-vl-max", "vision")  # raises if unsupported
 
 DeepSeek, GLM, and Kimi do not expose vision models. Sending image content
 to a text-only model raises `FeatureNotSupportedError` immediately — the
-request never reaches the network. To switch providers on the fly:
+request never reaches the network. To send the same request to a
+vision-capable provider, build a client for it:
 
 ```python
-client.chat(messages=..., provider="qwen", model="qwen-vl-max")
+qwen = UniversalAI(provider="qwen")     # reads DASHSCOPE_API_KEY
+qwen.chat(messages=..., model="qwen-vl-max")
 ```
+
+A per-call `provider=` override is also accepted, but credentials are scoped
+per provider: the target provider must have its own API key available in the
+environment, because the constructor credential of the client you are calling
+is never reused for a different provider.

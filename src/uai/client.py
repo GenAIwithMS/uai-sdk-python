@@ -92,10 +92,13 @@ class UniversalAI:
         Initialize the UniversalAI client.
 
         Args:
-            api_key: Default API key (can be overridden by provider-specific env vars).
+            api_key: API key for *provider*. Scoped to that provider only — a
+                per-call ``provider=`` override resolves its own key from the
+                environment instead (see :meth:`_get_api_key`).
             provider: Default provider to use (e.g., 'deepseek', 'qwen').
             model: Default model to use.
-            credentials: Provider-specific credential dictionary.
+            credentials: Credential dictionary for *provider*. Same scoping as
+                ``api_key``.
             timeout: Request timeout in seconds.
             max_retries: Maximum retry attempts.
         """
@@ -118,14 +121,17 @@ class UniversalAI:
         if max_retries is not None:
             self._config.max_retries = max_retries
 
+        # Credentials passed to the constructor belong to ``provider`` and to
+        # no other.  They are deliberately *not* used as a global fallback:
+        # a per-call ``provider=`` override must never reuse them, or one
+        # provider's key would be transmitted to another provider's API.
+        # Every other provider resolves its own key at call time.
         if credentials is not None:
-            self._credentials = credentials
+            self._credentials = dict(credentials)
         elif api_key is not None:
             self._credentials = {"api_key": api_key}
         else:
-            api_key_env = self._config.api_key_env_var
-            env_key = os.environ.get(api_key_env) if api_key_env else None
-            self._credentials = {"api_key": env_key} if env_key else {}
+            self._credentials = {}
 
         self._default_model = model or self._config.default_model
 
@@ -190,10 +196,27 @@ class UniversalAI:
         return self._adapters[provider_lower]
 
     def _get_api_key(self, config: ProviderConfig) -> str | None:
-        """Get API key from credentials or environment."""
-        api_key = self._credentials.get("api_key")
-        if api_key is not None:
-            return str(api_key)
+        """
+        Resolve the API key for the provider described by *config*.
+
+        Constructor credentials are scoped to the client's default provider.
+        Any other provider — reached through a per-call ``provider=``
+        override — resolves its own key from its ``api_key_env_var``, so a
+        credential is never transmitted to a provider it was not issued for.
+
+        Falling through to the environment on every call also means a rotated
+        key is picked up without rebuilding the client.
+
+        Args:
+            config: Configuration of the provider being called.
+
+        Returns:
+            The API key, or ``None`` if no credential is available.
+        """
+        if config.name.lower() == self._default_provider:
+            api_key = self._credentials.get("api_key")
+            if api_key is not None:
+                return str(api_key)
 
         api_key_env = config.api_key_env_var
         result = os.environ.get(api_key_env) if api_key_env else None

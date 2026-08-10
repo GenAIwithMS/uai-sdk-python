@@ -71,6 +71,37 @@ clear_cache()                  # force a re-read on the next load_config()
 | `MINIMAX_API_KEY` | MiniMax |
 | `HUNYUAN_API_KEY` | Hunyuan |
 
+### Credential scoping
+
+Credentials are resolved **per provider**, never shared between them:
+
+- An `api_key` (or `credentials`) passed to `UniversalAI(...)` applies **only
+  to that client's provider**. It is not a global default.
+- Any other provider — including one reached through a per-call `provider=`
+  override — resolves its own key from its `api_key_env_var` above.
+- If the target provider has no key available, the call raises `ValueError`
+  naming the environment variable to set. It never falls back to another
+  provider's credential.
+
+```python
+client = UniversalAI(api_key="sk-deepseek", provider="deepseek")
+
+client.chat(messages=[...])                    # uses sk-deepseek
+client.chat(messages=[...], provider="qwen")   # uses DASHSCOPE_API_KEY,
+                                               # or raises if it is unset
+```
+
+The practical model is **one client per provider**, each holding its own
+credential:
+
+```python
+deepseek = UniversalAI(provider="deepseek")   # DEEPSEEK_API_KEY
+qwen     = UniversalAI(provider="qwen")       # DASHSCOPE_API_KEY
+```
+
+Because keys are read at call time rather than captured at construction, a
+rotated environment variable takes effect without rebuilding the client.
+
 ### Per-provider overrides
 
 Any of the following can be set for a provider `NAME` (uppercased, e.g. `DEEPSEEK`):
