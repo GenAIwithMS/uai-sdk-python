@@ -19,7 +19,7 @@ Added · Changed · Deprecated · Removed · Fixed · Security
 
 ---
 
-## [0.1.1] — 2026-08-10
+## [0.1.5] — 2026-08-10
 
 A correctness, documentation, and packaging-metadata release.
 
@@ -133,5 +133,5 @@ Initial public release, published to [PyPI](https://pypi.org/project/uai-sdk/).
 - The cache middleware is in-process and in-memory — it is not shared across workers or processes.
 
 [Unreleased]: https://github.com/GenAIwithMS/uai-sdk-python/compare/v0.1.1...HEAD
-[0.1.1]: https://github.com/GenAIwithMS/uai-sdk-python/compare/v0.1.0...v0.1.1
+[0.1.5]: https://github.com/GenAIwithMS/uai-sdk-python/compare/v0.1.1...v0.1.5
 [0.1.0]: https://github.com/GenAIwithMS/uai-sdk-python/releases/tag/v0.1.0
