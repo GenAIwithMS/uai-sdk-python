@@ -85,7 +85,7 @@ export DEEPSEEK_API_KEY="sk-..."
 ```python
 from uai import UniversalAI
 
-client = UniversalAI(provider="deepseek", model="deepseek-chat")
+client = UniversalAI(provider="deepseek", model="deepseek-v4-flash")
 
 response = client.chat(
     messages=[{"role": "user", "content": "Translate to English: 你好"}],
@@ -103,6 +103,40 @@ client = UniversalAI(api_key="sk-...", provider="deepseek")
 ```
 
 > **Credentials are scoped to one provider.** An `api_key` you pass to the constructor is used for that client's provider and no other — it is never reused as a fallback for a different one. Build a separate client per provider, each with its own key.
+
+### Choosing a model
+
+`model=` takes any model id the provider accepts, the same way per-provider
+LangChain classes do:
+
+```python
+client = UniversalAI(provider="deepseek", model="deepseek-v4-pro")
+
+client.chat(messages=[...], model="deepseek-v4-flash")   # per-call override
+
+client = UniversalAI(model="glm-4.7")                    # provider inferred → "glm"
+```
+
+**A model the registry doesn't know is still sent.** Provider catalogues move
+faster than this package is released, so an unrecognised id is forwarded
+verbatim (with a warning) rather than rejected:
+
+```python
+# Works on day one of a new release, no SDK upgrade needed.
+client = UniversalAI(provider="deepseek", model="deepseek-v4-flash-0731")
+```
+
+Two things are still refused, because both are mistakes rather than new
+releases: a model belonging to a **different** registered provider, and any
+unknown id when you pass `strict_models=True`. To give a new model real
+metadata instead of just passing it through, declare it in a `providers.yaml` —
+see [docs/configuration.md](docs/configuration.md#registering-a-new-model).
+
+> **`.env` files are not read by the SDK.** It reads the process environment.
+> Load the file yourself first — `pip install "uai-sdk[dotenv]"`, then
+> `load_dotenv()` before constructing a client. To set a model from the
+> environment, use `UAI_PROVIDER_DEEPSEEK_DEFAULT_MODEL` (there is no bare
+> `DEEPSEEK_MODEL` variable).
 
 ### Streaming
 
@@ -192,7 +226,7 @@ print(response.vectors[0].values[:5])
 ranked = qwen.rerank(
     query="What is machine learning?",
     documents=["ML is a field of AI.", "Paris is in France."],
-    model="qwen-reranker",
+    model="qwen3-rerank",
 )
 print(ranked.results[0].index)     # most relevant document
 ```
@@ -210,14 +244,14 @@ client.supports("rerank", provider="glm")              # ask about another one
 
 | Provider | Default model | API key env var | Chat | Stream | Tools | Vision | Embed | Rerank | Reasoning |
 |:---|:---|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **DeepSeek** | `deepseek-chat` | `DEEPSEEK_API_KEY` | ✅ | ✅ | ✅ | — | ✅ | — | ✅ |
-| **Qwen** (DashScope) | `qwen-plus` | `DASHSCOPE_API_KEY` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
-| **GLM** (Zhipu) | `glm-4.7` | `BIGMODEL_API_KEY` | ✅ | ✅ | ✅ | — | ✅ | ✅ | ✅ |
-| **Kimi** (Moonshot) | `kimi-k2.5` | `MOONSHOT_API_KEY` | ✅ | ✅ | ✅ | — | — | — | — |
-| **StepFun** | `stepfun-2.5` | `STEPFUN_API_KEY` | ✅ | ✅ | ✅ | ✅ | ✅ | — | — |
-| **Doubao** (ByteDance) | `doubao-pro-32k` | `DOUBAO_API_KEY` | ✅ | ✅ | ✅ | ✅ | ✅ | — | — |
-| **MiniMax** | `minimax-m2.5` | `MINIMAX_API_KEY` | ✅ | ✅ | ✅ | ✅ | ✅ | — | — |
-| **Hunyuan** (Tencent) | `hunyuan-turbo` | `HUNYUAN_API_KEY` | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ |
+| **DeepSeek** | `deepseek-v4-flash` | `DEEPSEEK_API_KEY` | ✅ | ✅ | ✅ | — | — | — | ✅ |
+| **Qwen** (Model Studio) | `qwen3.7-plus` | `DASHSCOPE_API_KEY` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| **GLM** (Zhipu) | `glm-4.7` | `BIGMODEL_API_KEY` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **MiniMax** | `MiniMax-M3` | `MINIMAX_API_KEY` | ✅ | ✅ | ✅ | — | ✅ | — | — |
+| **Kimi** (Moonshot) | `kimi-k3` | `MOONSHOT_API_KEY` | ✅ | ✅ | ✅ | ✅ | — | — | ✅ |
+| **StepFun** | `step-3.7-flash` | `STEPFUN_API_KEY` | ✅ | ✅ | ✅ | ✅ | — | — | ✅ |
+| **Doubao** (Volcengine Ark) | `doubao-seed-2-0-pro` | `ARK_API_KEY` | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ |
+| **Hunyuan** (Tencent) | `hunyuan-turbo-latest` | `HUNYUAN_API_KEY` | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ |
 
 Capabilities are declared **per model**, not per provider — the table shows the union across each provider's model family. Run `uai list-models <provider>` for the exact per-model matrix, or see [docs/providers.md](docs/providers.md).
 
@@ -289,7 +323,7 @@ Three layers, highest precedence first: **constructor arguments → environment 
 ```python
 client = UniversalAI(
     provider="qwen",
-    model="qwen-plus",
+    model="qwen3.7-plus",
     api_key="sk-...",
     timeout=60.0,       # seconds; overrides the registry and env config
     max_retries=3,      # enables retries — see below
@@ -361,8 +395,8 @@ uai benchmark --providers deepseek,qwen --iterations 5 --json
 ```
 Provider   Model                  Iter   OK  TTFT ms   Lat ms   Tok/s    Cost $  Err %
 ------------------------------------------------------------------------------------
-deepseek   deepseek-chat             5    5      312      894    41.2  0.000418   0.0%
-qwen       qwen-plus                 5    5      408     1102    33.7  0.000356   0.0%
+deepseek   deepseek-v4-flash             5    5      312      894    41.2  0.000418   0.0%
+qwen       qwen3.7-plus                 5    5      408     1102    33.7  0.000356   0.0%
 ```
 
 TTFT is measured from real streamed responses; cost is derived from the registry's per-model pricing and actual token usage. See [docs/benchmark.md](docs/benchmark.md).

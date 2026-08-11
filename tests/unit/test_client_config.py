@@ -58,12 +58,12 @@ class TestTimeout:
         # Documented precedence: constructor arguments over environment.
         monkeypatch.setenv("UAI_PROVIDER_DEEPSEEK_TIMEOUT", "60")
         client = UniversalAI(provider="deepseek", timeout=120.0)
-        assert client._timeout_for(client._resolve_model("deepseek", "deepseek-chat")) == 120.0
+        assert client._timeout_for(client._config_for("deepseek")) == 120.0
 
     def test_env_override_applies_when_no_constructor_timeout(self, monkeypatch):
         monkeypatch.setenv("UAI_PROVIDER_DEEPSEEK_TIMEOUT", "60")
         client = UniversalAI(provider="deepseek")
-        assert client._timeout_for(client._resolve_model("deepseek", "deepseek-chat")) == 60.0
+        assert client._timeout_for(client._config_for("deepseek")) == 60.0
 
     def test_timeout_applies_across_providers(self):
         # Unlike a credential, a timeout expresses the caller's own deadline,
@@ -72,7 +72,7 @@ class TestTimeout:
         assert client._timeout_for(get_provider_config("qwen")) == 120.0
 
     def test_client_timeout_does_not_leak_into_other_clients(self):
-        # _resolve_model hands back shared registry entries; the override must
+        # _config_for hands back shared registry entries; the override must
         # never be written into them.
         UniversalAI(provider="deepseek", timeout=120.0)
         other = UniversalAI(provider="deepseek")

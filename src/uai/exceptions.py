@@ -88,6 +88,50 @@ class FeatureNotSupportedError(UAIError):
         super().__init__(full_msg, provider=provider, model=model)
 
 
+class ModelNotFoundError(UAIError):
+    """
+    Raised when a model id cannot be resolved for a provider.
+
+    Distinguishes the two ways a model lookup fails, because the remedies
+    differ:
+
+    * the id is unknown to the provider's registry entry — add it via a
+      ``providers.yaml`` config file, or allow pass-through with
+      ``strict_models=False`` / ``UAI_PROVIDER_{NAME}_ALLOW_UNKNOWN_MODELS``;
+    * the id belongs to a *different* registered provider — pass the matching
+      ``provider=``.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        provider: str,
+        *,
+        available: list[str] | None = None,
+        known_from: str | None = None,
+    ) -> None:
+        self.available = available or []
+        self.known_from = known_from
+
+        msg = f"Model '{model}' is not registered for provider '{provider}'."
+        if known_from:
+            msg += (
+                f" It belongs to provider '{known_from}' — "
+                f"pass provider='{known_from}' (or drop the provider argument "
+                f"to let the SDK infer it)."
+            )
+        if self.available:
+            msg += f" Known models for '{provider}': {', '.join(self.available)}."
+        if not known_from:
+            msg += (
+                " If the provider has released this model since this SDK version, "
+                "pass strict_models=False, set "
+                f"UAI_PROVIDER_{provider.upper()}_ALLOW_UNKNOWN_MODELS=true, "
+                "or declare it in a providers.yaml config file."
+            )
+        super().__init__(msg, provider=provider, model=model)
+
+
 class UAITimeoutError(UAIError):
     """Raised when a request exceeds its configured timeout."""
 

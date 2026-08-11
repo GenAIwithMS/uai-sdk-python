@@ -16,6 +16,7 @@ import logging
 import os
 import time
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any, Callable, cast
 
 import httpx
@@ -24,6 +25,7 @@ from uai.adapters.base_adapter import BaseProviderAdapter
 from uai.enforcer import CapabilityMatrixEnforcer
 from uai.exceptions import (
     FeatureNotSupportedError,
+    ModelNotFoundError,
     UAIAuthenticationError,
     UAIError,
     UAINetworkError,
@@ -39,13 +41,15 @@ from uai.models import (
     FinishReason,
     ImageContent,
     RerankResponse,
+    Role,
     StreamChunk,
     ToolDefinition,
     UnifiedRequest,
     UnifiedResponse,
     UsageMetrics,
 )
-from uai.registry import apply_env_overrides, get_provider_config
+from uai.registry import apply_env_overrides, get_provider_config, load_config
+from uai.registry.providers import PROVIDER_REGISTRY, find_providers_for_model
 from uai.registry.schema import ProviderConfig, ProviderModel
 from uai.structured import build_schema_prompt, parse_structured_output
 
@@ -80,14 +84,20 @@ class UniversalAI:
         >>> print(response.content)
     """
 
+    #: Provider assumed when neither ``provider=`` nor an inferable ``model=``
+    #: is supplied.
+    DEFAULT_PROVIDER = "deepseek"
+
     def __init__(
         self,
         api_key: str | None = None,
-        provider: str = "deepseek",
+        provider: str | None = None,
         model: str | None = None,
         credentials: dict[str, Any] | None = None,
         timeout: float | None = None,
         max_retries: int | None = None,
+        strict_models: bool | None = None,
+        config_path: str | Path | None = None,
     ):
         """
         Initialize the UniversalAI client.
@@ -97,7 +107,14 @@ class UniversalAI:
                 per-call ``provider=`` override resolves its own key from the
                 environment instead (see :meth:`_get_api_key`).
             provider: Default provider to use (e.g., 'deepseek', 'qwen').
-            model: Default model to use.
+                When omitted, it is inferred from *model* if that model is
+                registered to exactly one provider, else defaults to
+                :data:`DEFAULT_PROVIDER`.
+            model: Default model for this client, in the style of
+                ``ChatGroq(model=...)``. An id the registry does not know is
+                still accepted and forwarded to the provider verbatim, unless
+                ``strict_models=True``. A model registered to a *different*
+                provider than the one selected is rejected immediately.
             credentials: Credential dictionary for *provider*. Same scoping as
                 ``api_key``.
             timeout: Request timeout in seconds. Takes precedence over the
@@ -108,10 +125,29 @@ class UniversalAI:
                 :class:`~uai.middleware.retry.RetryMiddleware`, placed inside
                 every middleware added via :meth:`use`. Leave unset for no
                 retries — retrying stays opt-in.
-        """
-        self._all_configs = apply_env_overrides()
+            strict_models: Force model-id validation on (``True``) or off
+                (``False``) for every provider, overriding each provider's
+                ``allow_unknown_models``. Leave ``None`` to honour the
+                per-provider setting (pass-through by default).
+            config_path: Explicit path to a ``providers.yaml``/``.json``
+                config file. When omitted the standard search paths and
+                ``UAI_CONFIG_PATH`` are used.
 
-        provider_lower = provider.lower()
+        Raises:
+            ValueError: If the provider is unknown, if *model* belongs to a
+                different provider, or if *model* is unknown while strict
+                model validation is in effect.
+        """
+        self._strict_models = strict_models
+        # Precedence: environment > config file > built-in registry.  The
+        # loader was previously exported but never invoked, so a providers.yaml
+        # on disk had no effect; wiring it here is what makes the documented
+        # "add a model without touching the SDK" workflow real.
+        merged: dict[str, ProviderConfig] = dict(PROVIDER_REGISTRY)
+        merged.update(load_config(config_path))
+        self._all_configs = apply_env_overrides(merged)
+
+        provider_lower = self._select_provider(provider, model)
         if provider_lower not in self._all_configs:
             available = ", ".join(self._all_configs.keys())
             raise ValueError(
@@ -119,12 +155,12 @@ class UniversalAI:
             )
 
         self._default_provider = provider_lower
-        base_config = get_provider_config(self._default_provider)
+        base_config = self._all_configs[provider_lower]
 
         self._config: ProviderConfig = base_config.model_copy()
 
         # Held on the client and applied at the point of use rather than
-        # written into a ProviderConfig.  ``_resolve_model`` hands back shared
+        # written into a ProviderConfig.  ``_config_for`` hands back shared
         # registry entries, so mutating one would leak this client's timeout
         # into every other client in the process, and copying a config per
         # request would cost more than the <5ms overhead budget allows.
@@ -154,15 +190,171 @@ class UniversalAI:
         else:
             self._credentials = {}
 
-        self._default_model = model or self._config.default_model
+        # Defaults are keyed by provider.  A single ``_default_model`` string
+        # was the root of the cross-provider bug: ``chat(provider='qwen')`` on
+        # a DeepSeek-defaulted client inherited 'deepseek-chat' and failed
+        # lookup against Qwen's catalogue.  A model given here belongs to the
+        # provider it was given with, and to no other.
+        self._default_models: dict[str, str] = {}
+        if model is not None:
+            self._validate_constructor_model(provider_lower, model)
+            self._default_models[provider_lower] = model
 
         self._adapters: dict[str, BaseProviderAdapter] = {}
         self._engine = MiddlewareEngine()
 
         logger.debug(
             f"UniversalAI client initialized with provider={self._default_provider}, "
-            f"model={self._default_model}"
+            f"model={self._model_for(self._default_provider, None, 'chat')}"
         )
+
+    # ------------------------------------------------------------------
+    # Provider / model resolution
+    # ------------------------------------------------------------------
+
+    @property
+    def _default_model(self) -> str:
+        """
+        The default chat model for this client's default provider.
+
+        Retained as a read-only property for backwards compatibility; internal
+        code resolves through :meth:`_model_for` so that per-call
+        ``provider=`` overrides pick up *their* provider's default.
+        """
+        return self._model_for(self._default_provider, None, "chat")
+
+    def _select_provider(self, provider: str | None, model: str | None) -> str:
+        """
+        Choose the client's default provider, inferring it from *model* if needed.
+
+        Lets ``UniversalAI(model="glm-4.7")`` route without naming a provider,
+        mirroring how per-provider LangChain classes make the provider
+        implicit. Inference only fires when the model maps to exactly one
+        registered provider; ambiguity and unknown ids are reported rather
+        than guessed, because guessing would send a key to the wrong vendor.
+        """
+        if provider is not None:
+            return provider.strip().lower()
+        if model is None:
+            return self.DEFAULT_PROVIDER
+
+        candidates = find_providers_for_model(model, self._all_configs)
+        if len(candidates) == 1:
+            logger.debug("[uai] inferred provider '%s' from model '%s'", candidates[0], model)
+            return candidates[0]
+        if len(candidates) > 1:
+            raise ValueError(
+                f"Model '{model}' is registered to multiple providers "
+                f"({', '.join(candidates)}). Pass provider= to disambiguate."
+            )
+        raise ValueError(
+            f"Cannot infer a provider for model '{model}': no registered provider "
+            f"declares it. Pass provider= explicitly (e.g. "
+            f"UniversalAI(provider='deepseek', model='{model}')). "
+            f"Registered providers: {', '.join(self._all_configs)}."
+        )
+
+    def _allow_unknown_for(self, config: ProviderConfig) -> bool:
+        """Whether unregistered model ids may pass through for *config*."""
+        if self._strict_models is not None:
+            return not self._strict_models
+        return config.allow_unknown_models
+
+    def _validate_constructor_model(self, provider_lower: str, model: str) -> None:
+        """
+        Fail fast when the constructor's ``model`` cannot serve *provider*.
+
+        Previously any string was accepted here and only surfaced at the first
+        ``chat()`` call, far from the mistake. A model belonging to another
+        registered provider is always an error — pass-through must not ship a
+        Qwen id to DeepSeek's endpoint.
+        """
+        config = self._all_configs[provider_lower]
+        if config.knows_model(model):
+            return
+
+        elsewhere = find_providers_for_model(model, self._all_configs)
+        if elsewhere:
+            raise ModelNotFoundError(
+                model,
+                provider_lower,
+                available=list(config.models),
+                known_from=elsewhere[0],
+            )
+        if not self._allow_unknown_for(config):
+            raise ModelNotFoundError(model, provider_lower, available=list(config.models))
+        logger.warning(
+            "[uai] model '%s' is not in the registry for provider '%s'; forwarding it "
+            "as-is. Capability checks for this model fall back to the provider's "
+            "aggregate capabilities.",
+            model,
+            provider_lower,
+        )
+
+    def _config_for(self, provider_lower: str) -> ProviderConfig:
+        """Return the effective :class:`ProviderConfig` for *provider_lower*."""
+        config = self._all_configs.get(provider_lower)
+        if config is not None:
+            return config
+        return get_provider_config(provider_lower)
+
+    def _model_for(
+        self,
+        provider_lower: str,
+        model: str | None,
+        capability: str = "chat",
+    ) -> str:
+        """
+        Resolve the model id to use for *provider_lower* and *capability*.
+
+        Order: the explicit per-call model, then this client's default for
+        *that* provider, then the provider's own default for the requested
+        modality. The last step is why ``embed()`` no longer inherits a chat
+        model and fails a capability check on providers that do offer
+        embeddings.
+        """
+        if model:
+            return model
+        if capability == "chat":
+            pinned = self._default_models.get(provider_lower)
+            if pinned:
+                return pinned
+        return self._config_for(provider_lower).default_model_for(capability)
+
+    def _resolve(
+        self,
+        provider_lower: str,
+        model: str | None,
+        capability: str = "chat",
+    ) -> tuple[ProviderConfig, str, ProviderModel]:
+        """
+        Resolve provider config, canonical model id, and model metadata.
+
+        Single funnel for what used to be three divergent alias-resolution
+        implementations (client, enforcer, schema), each with its own error
+        text and its own idea of what counts as unknown.
+        """
+        config = self._config_for(provider_lower)
+        model_id = self._model_for(provider_lower, model, capability)
+        try:
+            resolved_id, info, unregistered = config.resolve_model(
+                model_id, allow_unknown=self._allow_unknown_for(config)
+            )
+        except ValueError as exc:
+            elsewhere = find_providers_for_model(model_id, self._all_configs)
+            raise ModelNotFoundError(
+                model_id,
+                provider_lower,
+                available=list(config.models),
+                known_from=elsewhere[0] if elsewhere else None,
+            ) from exc
+        if unregistered:
+            logger.debug(
+                "[uai] forwarding unregistered model '%s' to provider '%s'",
+                resolved_id,
+                provider_lower,
+            )
+        return config, resolved_id, info
 
     def use(self, middleware: BaseMiddleware | list[BaseMiddleware]) -> UniversalAI:
         """
@@ -294,38 +486,50 @@ class UniversalAI:
         result = os.environ.get(api_key_env) if api_key_env else None
         return str(result) if result is not None else None
 
-    def _enforcer(self, provider_lower: str, model_id: str) -> CapabilityMatrixEnforcer:
+    def _enforcer(
+        self,
+        provider_lower: str,
+        model: str | None,
+        capability: str = "chat",
+    ) -> CapabilityMatrixEnforcer:
         """
         Build a capability enforcer for the active provider/model/adapter.
 
         The enforcer merges the registry model capabilities with the
         adapter's ``capabilities()`` matrix (Module 1.3.1).
         """
-        config = self._resolve_model(provider_lower, model_id)
+        config, resolved_id, info = self._resolve(provider_lower, model, capability)
         adapter = self._get_adapter(provider_lower)
         return CapabilityMatrixEnforcer(
             provider_lower,
-            model_id,
+            resolved_id,
             adapter=adapter,
             config=config,
+            model_info=info,
         )
 
-    def supports(self, feature: str, provider: str | None = None, model: str | None = None) -> bool:
+    def supports(
+        self,
+        feature: str,
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> bool:
         """
         Pre-flight check: does the resolved provider/model support *feature*?
 
         Args:
             feature: Capability name (e.g. ``'vision'``, ``'tools'``).
             provider: Provider name (defaults to the client's provider).
-            model: Model id or alias (defaults to the client's model).
+            model: Model id or alias. Defaults to the default model of the
+                *resolved* provider for the modality *feature* implies.
 
         Returns:
             ``True`` if the feature is supported by both the registry model
             capabilities and the active adapter's matrix.
         """
         provider_lower = (provider or self._default_provider).lower()
-        model_id = model or self._default_model
-        return self._enforcer(provider_lower, model_id).supports(feature)
+        capability = feature if feature in ("embeddings", "rerank") else "chat"
+        return self._enforcer(provider_lower, model, capability).supports(feature)
 
     @staticmethod
     def _messages_contain_images(messages: list[ChatMessage]) -> bool:
@@ -406,17 +610,28 @@ class UniversalAI:
         if output_schema is not None:
             request.output_schema = output_schema
 
-        # Apply additional kwargs
+        # Apply additional kwargs.  Unknown names are rejected rather than
+        # dropped: silently discarding `seed=42` or a misspelled parameter
+        # sends a request that quietly ignores what the caller asked for.
+        unknown = [key for key in kwargs if key not in UnifiedRequest.model_fields]
+        if unknown:
+            raise TypeError(
+                f"chat() got unexpected keyword argument(s): {', '.join(sorted(unknown))}. "
+                f"Supported request fields: {', '.join(sorted(UnifiedRequest.model_fields))}."
+            )
         for key, value in kwargs.items():
-            if hasattr(request, key) and value is not None:
+            if value is not None:
                 setattr(request, key, value)
 
-        operation_provider = request.provider or self._default_provider
-        operation_model = request.model or self._default_model
+        operation_provider = (request.provider or self._default_provider).lower()
 
         # Module 1.3.1 — capability matrix enforcement.  Halt before any
         # middleware or network work if the requested features are unsupported.
-        enforcer = self._enforcer(operation_provider.lower(), operation_model)
+        enforcer = self._enforcer(operation_provider, request.model)
+        # Label middleware (metrics, cache keys, traces) with the *canonical*
+        # id so an alias and its target aggregate as one series instead of
+        # splitting into two.
+        operation_model = enforcer.model
         enforcer.assert_supported("chat")
         if request.tools:
             enforcer.assert_supported("tools")
@@ -469,13 +684,14 @@ class UniversalAI:
             An ``EmbeddingsResponse`` with one vector per input text.
         """
         provider_lower = (provider or self._default_provider).lower()
-        self._enforcer(provider_lower, model or self._default_model).assert_supported("embeddings")
+        enforcer = self._enforcer(provider_lower, model, "embeddings")
+        enforcer.assert_supported("embeddings")
         return cast(
             EmbeddingsResponse,
             self._run_pipeline(
                 "embed",
                 provider_lower,
-                model or self._default_model,
+                enforcer.model,
                 None,
                 lambda _ctx: self._embed_request(text, provider, model),
             ),
@@ -499,10 +715,7 @@ class UniversalAI:
             An ``EmbeddingsResponse`` with one vector per input text.
         """
         provider_lower = (provider or self._default_provider).lower()
-        config = self._resolve_model(provider_lower, model or self._default_model)
-
-        model_id = model or self._default_model
-        resolved_id, model_info = self._resolve_model_info(config, model_id)
+        config, resolved_id, model_info = self._resolve(provider_lower, model, "embeddings")
 
         if not model_info.capabilities.embeddings:
             raise FeatureNotSupportedError(
@@ -571,13 +784,14 @@ class UniversalAI:
             A RerankResponse with documents ordered by descending relevance.
         """
         provider_lower = (provider or self._default_provider).lower()
-        self._enforcer(provider_lower, model or self._default_model).assert_supported("rerank")
+        enforcer = self._enforcer(provider_lower, model, "rerank")
+        enforcer.assert_supported("rerank")
         return cast(
             RerankResponse,
             self._run_pipeline(
                 "rerank",
                 provider_lower,
-                model or self._default_model,
+                enforcer.model,
                 None,
                 lambda _ctx: self._rerank_request(query, documents, provider, model),
             ),
@@ -603,10 +817,7 @@ class UniversalAI:
             A RerankResponse with documents ordered by descending relevance.
         """
         provider_lower = (provider or self._default_provider).lower()
-        config = self._resolve_model(provider_lower, model or self._default_model)
-
-        model_id = model or self._default_model
-        resolved_id, model_info = self._resolve_model_info(config, model_id)
+        config, resolved_id, model_info = self._resolve(provider_lower, model, "rerank")
 
         if not model_info.capabilities.rerank:
             raise FeatureNotSupportedError(
@@ -658,40 +869,10 @@ class UniversalAI:
         """Build the rerank request body via the adapter's format method."""
         return adapter.format_rerank_request(model, query, documents)
 
-    def _resolve_model(self, provider_lower: str, model_id: str) -> ProviderConfig:
-        """Get provider config and resolve model."""
-        config = self._all_configs.get(provider_lower)
-        if config:
-            return config
-        return get_provider_config(provider_lower)
-
-    def _resolve_model_info(
-        self, config: ProviderConfig, model_id: str
-    ) -> tuple[str, ProviderModel]:
-        """Resolve model ID and return (resolved_id, model_info)."""
-        model_info = config.models.get(model_id)
-        resolved_id = model_id
-
-        if not model_info:
-            # Try alias lookup
-            for mid, m in config.models.items():
-                if model_id in m.aliases:
-                    model_info = m
-                    resolved_id = mid
-                    break
-
-        if not model_info:
-            raise ValueError(f"Model '{model_id}' not found")
-
-        return resolved_id, model_info
-
     def _execute_chat(self, request: UnifiedRequest) -> UnifiedResponse:
         """Execute a non-streaming chat request."""
         provider_lower = (request.provider or self._default_provider).lower()
-        config = self._resolve_model(provider_lower, request.model or self._default_model)
-
-        model_id = request.model or self._default_model
-        resolved_id, model_info = self._resolve_model_info(config, model_id)
+        config, resolved_id, model_info = self._resolve(provider_lower, request.model, "chat")
 
         # Post-middleware safety net: the boundary enforcer already gated
         # the original request, but before_request hooks may have swapped
@@ -717,14 +898,15 @@ class UniversalAI:
             "Content-Type": "application/json",
         }
 
-        body = self._build_request_body(request, resolved_id)
+        adapter = self._get_adapter(provider_lower)
+        body = self._build_request_body(request, resolved_id, adapter)
 
         # Make API request
         start_time = time.time()
 
         try:
             response = httpx.post(
-                f"{config.base_url}/chat/completions",
+                f"{config.base_url}{adapter.chat_path}",
                 headers=headers,
                 json=body,
                 timeout=self._timeout_for(config),
@@ -740,35 +922,40 @@ class UniversalAI:
         data = response.json()
         return self._parse_chat_response(data, provider_lower, resolved_id, start_time, request)
 
-    def _build_request_body(self, request: UnifiedRequest, model_id: str) -> dict[str, Any]:
-        """Build the request body for the provider API."""
-        messages = [m.model_dump(exclude_none=True) for m in request.messages]
+    def _build_request_body(
+        self,
+        request: UnifiedRequest,
+        model_id: str,
+        adapter: BaseProviderAdapter,
+    ) -> dict[str, Any]:
+        """
+        Build the provider wire body by delegating to *adapter*.
+
+        The client used to hand-roll an OpenAI-shaped body here, which meant
+        every adapter's ``format_request`` was dead code: DeepSeek's thinking
+        parameter, MiniMax's content-block flattening and the
+        ``frequency_penalty``/``presence_penalty``/``user`` fields all existed
+        in the adapters but never reached the wire. Routing through the
+        adapter is what makes those provider-specific translations real.
+
+        The request handed to the adapter is a copy carrying the *canonical*
+        model id, so aliases are dereferenced before any adapter compares
+        ``request.model`` against a known id.
+        """
+        messages = list(request.messages)
         if request.output_schema is not None:
             # Module 1.3.2 — nudge the model toward schema-conforming JSON by
             # injecting the JSON Schema as a system instruction.
             messages = [
-                {"role": "system", "content": build_schema_prompt(request.output_schema)},
+                ChatMessage(
+                    role=Role.SYSTEM,
+                    content=build_schema_prompt(request.output_schema),
+                ),
                 *messages,
             ]
-        body: dict[str, Any] = {
-            "model": model_id,
-            "messages": messages,
-        }
 
-        if request.max_tokens is not None:
-            body["max_tokens"] = request.max_tokens
-        if request.temperature is not None:
-            body["temperature"] = request.temperature
-        if request.top_p is not None:
-            body["top_p"] = request.top_p
-        if request.stop:
-            body["stop"] = request.stop if isinstance(request.stop, list) else [request.stop]
-        if request.tools:
-            body["tools"] = [t.model_dump(exclude_none=True) for t in request.tools]
-            if request.tool_choice:
-                body["tool_choice"] = request.tool_choice.value
-
-        return body
+        outbound = request.model_copy(update={"model": model_id, "messages": messages})
+        return adapter.format_request(outbound)
 
     def _execute_streaming_chat(
         self,
@@ -777,10 +964,7 @@ class UniversalAI:
     ) -> Iterator[StreamChunk]:
         """Execute a streaming chat request."""
         provider_lower = (request.provider or self._default_provider).lower()
-        config = self._resolve_model(provider_lower, request.model or self._default_model)
-
-        model_id = request.model or self._default_model
-        resolved_id, model_info = self._resolve_model_info(config, model_id)
+        config, resolved_id, model_info = self._resolve(provider_lower, request.model, "chat")
 
         # Post-middleware safety net (see ``_execute_chat``).
         if not model_info.capabilities.streaming:
@@ -801,7 +985,8 @@ class UniversalAI:
             "Content-Type": "application/json",
         }
 
-        body = self._build_request_body(request, resolved_id)
+        adapter = self._get_adapter(provider_lower)
+        body = self._build_request_body(request, resolved_id, adapter)
         body["stream"] = True
 
         start_time = time.time()
@@ -826,7 +1011,7 @@ class UniversalAI:
         try:
             with httpx.stream(
                 "POST",
-                f"{config.base_url}/chat/completions",
+                f"{config.base_url}{adapter.chat_path}",
                 headers=headers,
                 json=body,
                 timeout=self._timeout_for(config),

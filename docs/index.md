@@ -7,7 +7,7 @@ This is the central documentation hub for the **Universal AI Provider SDK (uai-s
 ## Getting Started
 
 - [Architecture](architecture.md) — High-level design: middleware pipeline, provider adapter contract, `UnifiedRequest` lifecycle
-- [Installation & Configuration](configuration.md) — API keys, env vars, YAML config, key rotation
+- [Installation & Configuration](configuration.md) — choosing a model, API keys, env vars, `.env` handling, YAML config, key rotation
 
 ## API Reference
 

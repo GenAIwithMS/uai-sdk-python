@@ -321,21 +321,44 @@ class TestProviderConfig:
 
     # -- default_model validation ------------------------------------------
 
-    def test_default_model_not_in_models_rejected(self):
+    @staticmethod
+    def _config(**overrides):
+        base = dict(
+            name="test",
+            display_name="Test",
+            base_url="https://api.test.com/v1",
+            auth_type=AuthType.BEARER_TOKEN,
+            api_key_env_var="TEST_KEY",
+            models={
+                "a": ProviderModel(id="a", display_name="A", context_window=10, max_output_tokens=5)
+            },
+            default_model="nonexistent",
+        )
+        base.update(overrides)
+        return ProviderConfig(**base)
+
+    def test_default_model_not_in_models_rejected_under_strict(self):
         with pytest.raises(ValidationError, match="default_model"):
-            ProviderConfig(
-                name="test",
-                display_name="Test",
-                base_url="https://api.test.com/v1",
-                auth_type=AuthType.BEARER_TOKEN,
-                api_key_env_var="TEST_KEY",
-                models={
-                    "a": ProviderModel(
-                        id="a", display_name="A", context_window=10, max_output_tokens=5
-                    )
-                },
-                default_model="nonexistent",
-            )
+            self._config(allow_unknown_models=False)
+
+    def test_default_model_not_in_models_allowed_by_default(self):
+        """
+        Pass-through is the default, so an id this SDK version has never heard
+        of is forwarded rather than rejected — the behaviour that keeps the
+        registry from going stale into a hard failure.
+        """
+        assert self._config().default_model == "nonexistent"
+
+    def test_per_modality_default_must_match_declared_capability(self):
+        embedding_only = ProviderModel(
+            id="e",
+            display_name="E",
+            context_window=10,
+            max_output_tokens=1,
+            capabilities=ProviderCapabilities(embeddings=True),
+        )
+        with pytest.raises(ValidationError, match="does not advertise"):
+            self._config(models={"e": embedding_only}, default_model="e")
 
     # -- timeout / retries -------------------------------------------------
 

@@ -32,8 +32,6 @@ from uai.models import (
 )
 from uai.structured import parse_structured_output
 
-_DEFAULT_MODEL = "doubao-pro-32k"
-
 _FINISH_REASON_MAP = {
     "stop": FinishReason.STOP,
     "length": FinishReason.LENGTH,
@@ -70,7 +68,7 @@ class DoubaoAdapter(BaseProviderAdapter):
         """Translate UnifiedRequest to Doubao API format."""
         body: dict[str, Any] = {}
 
-        body["model"] = request.model or _DEFAULT_MODEL
+        body["model"] = request.model or self.default_model()
         body["messages"] = self._format_messages(request.messages)
 
         generation = {

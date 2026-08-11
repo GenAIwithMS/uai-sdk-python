@@ -60,7 +60,7 @@ The client interrogates the enforcer at the top of every public method
 ```python
 from uai import CapabilityMatrixEnforcer
 
-enforcer = CapabilityMatrixEnforcer("deepseek", "deepseek-chat")
+enforcer = CapabilityMatrixEnforcer("deepseek", "deepseek-v4-flash")
 enforcer.supports("chat")    # True
 enforcer.assert_supported("vision")  # raises FeatureNotSupportedError
 
@@ -72,7 +72,7 @@ remains available for one-off assertions:
 
 ```python
 from uai.registry import check_capability
-check_capability("deepseek", "deepseek-chat", "vision")  # raises if unsupported
+check_capability("deepseek", "deepseek-v4-flash", "vision")  # raises if unsupported
 ```
 
 See [providers.md](providers.md) for the full matrix and [configuration.md](configuration.md)
@@ -92,7 +92,7 @@ The client can be instantiated with provider and model preferences:
 ```python
 from uai import UniversalAI
 
-client = UniversalAI(provider="deepseek", model="deepseek-chat")
+client = UniversalAI(provider="deepseek", model="deepseek-v4-flash")
 response = client.chat(messages=[{"role": "user", "content": "Hello"}])
 ```
 

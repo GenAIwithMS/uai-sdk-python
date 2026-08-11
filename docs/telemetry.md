@@ -57,8 +57,8 @@ Module 1.5.2):
 |-----------|---------|
 | `gen_ai.operation.name` | `chat` |
 | `gen_ai.provider.name` | `deepseek` |
-| `gen_ai.request.model` | `deepseek-chat` |
-| `gen_ai.response.model` | `deepseek-chat` (may differ from requested) |
+| `gen_ai.request.model` | `deepseek-v4-flash` |
+| `gen_ai.response.model` | `deepseek-v4-flash` (may differ from requested) |
 | `gen_ai.request.temperature` | `0.7` |
 | `gen_ai.request.max_tokens` | `1024` |
 | `gen_ai.response.id` | `cmpl-abc123` |

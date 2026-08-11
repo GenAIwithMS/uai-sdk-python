@@ -14,7 +14,7 @@ client = UniversalAI(api_key="...", provider="qwen")
 result = client.rerank(
     query="What is quantum computing?",
     documents=["doc1...", "doc2...", "doc3..."],
-    model="qwen-reranker",
+    model="qwen3-rerank",
 )
 
 for item in result.results:

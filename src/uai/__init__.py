@@ -9,6 +9,7 @@ from uai.client import UniversalAI
 from uai.enforcer import CapabilityMatrixEnforcer
 from uai.exceptions import (
     FeatureNotSupportedError,
+    ModelNotFoundError,
     ResponseParsingError,
     UAIAuthenticationError,
     UAICircuitOpenError,
@@ -45,7 +46,7 @@ from uai.models import (
     UsageMetrics,
 )
 
-__version__ = "0.1.5"
+__version__ = "0.2.0"
 __all__ = [
     "BaseMiddleware",
     "CacheMiddleware",
@@ -59,6 +60,7 @@ __all__ = [
     "LoggingMiddleware",
     "MetricsMiddleware",
     "MetricsRegistry",
+    "ModelNotFoundError",
     "MiddlewareEngine",
     "MiddlewareHalt",
     "ResponseParsingError",

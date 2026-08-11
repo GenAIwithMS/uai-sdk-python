@@ -70,6 +70,7 @@ class TestFormatRequest:
         assert body["messages"] == [{"role": "user", "content": "Hello"}]
 
     def test_default_model_when_none(self):
+        """Falls back to the registry default rather than a private constant."""
         body = GLMAdapter().format_request(make_request(model=None))
         assert body["model"] == "glm-4.7"
 

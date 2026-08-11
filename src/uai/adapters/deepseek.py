@@ -31,9 +31,6 @@ from uai.models import (
 )
 from uai.structured import parse_structured_output
 
-_DEFAULT_MODEL = "deepseek-chat"
-_REASONER_MODEL = "deepseek-reasoner"
-
 _FINISH_REASON_MAP = {
     "stop": FinishReason.STOP,
     "length": FinishReason.LENGTH,
@@ -68,7 +65,7 @@ class DeepSeekAdapter(BaseProviderAdapter):
         """Translate UnifiedRequest to DeepSeek API format."""
         body: dict[str, Any] = {}
 
-        body["model"] = request.model or _DEFAULT_MODEL
+        body["model"] = request.model or self.default_model()
         body["messages"] = self._format_messages(request.messages)
 
         generation = {
@@ -93,9 +90,11 @@ class DeepSeekAdapter(BaseProviderAdapter):
         if request.user is not None:
             body["user"] = request.user
 
-        # DeepSeek reasoner exposes reasoning content via a dedicated param.
-        if request.model == _REASONER_MODEL:
-            body.setdefault("reasoning_format", "detailed")
+        # Thinking mode used to be selected by calling the separate
+        # ``deepseek-reasoner`` model.  Under V4 it is a request parameter on
+        # a single model id, so there is nothing to infer from the model name
+        # here — callers opt in explicitly and it rides through ``metadata``
+        # or an extra field rather than being guessed at.
 
         return body
 

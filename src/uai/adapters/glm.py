@@ -34,7 +34,6 @@ from uai.models import (
 )
 from uai.structured import parse_structured_output
 
-_DEFAULT_MODEL = "glm-4.7"
 _DEFAULT_RERANK_MODEL = "rerankv3.5"
 
 _FINISH_REASON_MAP = {
@@ -71,7 +70,7 @@ class GLMAdapter(BaseProviderAdapter):
         """Translate UnifiedRequest to GLM API format."""
         body: dict[str, Any] = {}
 
-        body["model"] = request.model or _DEFAULT_MODEL
+        body["model"] = request.model or self.default_model()
         body["messages"] = self._format_messages(request.messages)
 
         generation = {

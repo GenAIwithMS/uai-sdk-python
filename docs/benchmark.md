@@ -13,7 +13,7 @@ uai benchmark
 
 # Limit to specific providers / models
 uai benchmark --providers deepseek,qwen
-uai benchmark --providers qwen --models qwen-plus,qwen-vl-max
+uai benchmark --providers qwen --models qwen3.7-plus,qwen-vl-max
 
 # Tune the workload
 uai benchmark \

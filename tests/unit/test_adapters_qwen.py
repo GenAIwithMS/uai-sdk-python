@@ -80,8 +80,9 @@ class TestFormatRequest:
         assert body["temperature"] == 0.5
 
     def test_default_model_when_none(self):
+        """Falls back to the registry default rather than a private constant."""
         body = QwenAdapter().format_request(make_request(model=None))
-        assert body["model"] == "qwen-plus"
+        assert body["model"] == "qwen3.7-plus"
 
     def test_stop_wrapped_in_list(self):
         body = QwenAdapter().format_request(make_request(stop="END"))
