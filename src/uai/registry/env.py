@@ -271,8 +271,7 @@ def apply_env_overrides_to_config(
         return ProviderConfig(**merged)
     except ValidationError as exc:
         logger.warning(
-            "[uai] environment overrides for provider '%s' are invalid and were "
-            "ignored: %s",
+            "[uai] environment overrides for provider '%s' are invalid and were ignored: %s",
             config.name,
             exc,
         )

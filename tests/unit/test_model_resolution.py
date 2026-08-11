@@ -147,9 +147,7 @@ class TestConstructorValidation:
 
     def test_unknown_model_rejected_under_strict_models(self):
         with pytest.raises(ModelNotFoundError) as exc:
-            UniversalAI(
-                api_key="k", provider="deepseek", model="not-a-model", strict_models=True
-            )
+            UniversalAI(api_key="k", provider="deepseek", model="not-a-model", strict_models=True)
         assert "strict_models=False" in str(exc.value)
 
     def test_known_model_is_accepted(self):
