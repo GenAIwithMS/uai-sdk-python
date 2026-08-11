@@ -32,8 +32,6 @@ from uai.models import (
 )
 from uai.structured import parse_structured_output
 
-_DEFAULT_MODEL = "kimi-k2.5"
-
 _FINISH_REASON_MAP = {
     "stop": FinishReason.STOP,
     "length": FinishReason.LENGTH,
@@ -68,7 +66,7 @@ class KimiAdapter(BaseProviderAdapter):
         """Translate UnifiedRequest to Kimi API format."""
         body: dict[str, Any] = {}
 
-        body["model"] = request.model or _DEFAULT_MODEL
+        body["model"] = request.model or self.default_model()
         body["messages"] = self._format_messages(request.messages)
 
         generation = {

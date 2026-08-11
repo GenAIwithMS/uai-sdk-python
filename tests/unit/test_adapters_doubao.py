@@ -69,8 +69,9 @@ class TestFormatRequest:
         assert body["messages"] == [{"role": "user", "content": "Hello"}]
 
     def test_default_model_when_none(self):
+        """Falls back to the registry default rather than a private constant."""
         body = DoubaoAdapter().format_request(make_request(model=None))
-        assert body["model"] == "doubao-pro-32k"
+        assert body["model"] == "doubao-seed-2-0-pro"
 
     def test_penalties_included(self):
         body = DoubaoAdapter().format_request(

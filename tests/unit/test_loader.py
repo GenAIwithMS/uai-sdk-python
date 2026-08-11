@@ -166,7 +166,7 @@ class TestLoadConfigYaml:
         assert ds.timeout == 45.0
         assert ds.max_retries == 5
         # Untouched fields should match the hardcoded defaults
-        assert ds.default_model == "deepseek-chat"
+        assert ds.default_model == "deepseek-v4-flash"
         assert ds.auth_type == AuthType.BEARER_TOKEN
 
     def test_override_keeps_models(self, yaml_override_config):
@@ -174,14 +174,14 @@ class TestLoadConfigYaml:
         clear_cache()
         configs = load_config_file(yaml_override_config)
         ds = configs["deepseek"]
-        assert "deepseek-chat" in ds.models
-        assert "deepseek-reasoner" in ds.models
+        assert "deepseek-v4-flash" in ds.models
+        assert "deepseek-v4-pro" in ds.models
 
     def test_override_preserves_aliases(self, yaml_override_config):
         clear_cache()
         configs = load_config_file(yaml_override_config)
-        model = configs["deepseek"].models["deepseek-chat"]
-        assert "deepseek-chat-latest" in model.aliases
+        model = configs["deepseek"].models["deepseek-v4-flash"]
+        assert "deepseek-chat-latest" in model.aliases  # retired id kept as alias
 
 
 # ---------------------------------------------------------------------------
@@ -470,9 +470,9 @@ providers:
         configs = load_config_file(path)
         ds = configs["deepseek"]
         assert ds.base_url == "https://override.example.com/v1"
-        assert "deepseek-chat" in ds.models
-        assert "deepseek-reasoner" in ds.models
-        assert ds.default_model == "deepseek-chat"
+        assert "deepseek-v4-flash" in ds.models
+        assert "deepseek-v4-pro" in ds.models
+        assert ds.default_model == "deepseek-v4-flash"
 
     def test_override_regions(self, tmp_path, clean_registry):
         """New regional endpoint for an existing provider."""
@@ -499,8 +499,8 @@ providers:
 providers:
   deepseek:
     models:
-      deepseek-chat:
-        id: "deepseek-chat"
+      deepseek-v4-flash:
+        id: "deepseek-v4-flash"
         display_name: "DeepSeek Chat"
         context_window: 128000
         max_output_tokens: 32000
@@ -518,9 +518,9 @@ providers:
           rerank: false
           tts: false
           transcription: false
-        aliases: ["deepseek-chat-latest"]
-      deepseek-reasoner:
-        id: "deepseek-reasoner"
+        aliases: ["deepseek-v4-flash-latest"]
+      deepseek-v4-pro:
+        id: "deepseek-v4-pro"
         display_name: "DeepSeek Reasoner"
         context_window: 128000
         max_output_tokens: 32000
@@ -538,16 +538,16 @@ providers:
           rerank: false
           tts: false
           transcription: false
-        aliases: ["deepseek-reasoner-1"]
+        aliases: ["deepseek-v4-pro-1"]
 """
         path = tmp_path / "providers.yaml"
         path.write_text(config)
         configs = load_config_file(path)
         ds = configs["deepseek"]
-        assert ds.models["deepseek-chat"].pricing.input_cost_per_1k == 0.010
-        assert ds.models["deepseek-chat"].pricing.output_cost_per_1k == 0.020
+        assert ds.models["deepseek-v4-flash"].pricing.input_cost_per_1k == 0.010
+        assert ds.models["deepseek-v4-flash"].pricing.output_cost_per_1k == 0.020
         # Reasoner pricing should come from the YAML too
-        assert ds.models["deepseek-reasoner"].pricing.input_cost_per_1k == 0.014
+        assert ds.models["deepseek-v4-pro"].pricing.input_cost_per_1k == 0.014
 
     def test_default_model_in_new_provider(self, tmp_path, clean_registry):
         """New provider must have a valid default_model."""
@@ -571,8 +571,21 @@ providers:
 """
         path = tmp_path / "providers.yaml"
         path.write_text(config)
+
+        # Pass-through is on by default, so an undeclared default is forwarded
+        # to the provider rather than rejected — that is what lets a config
+        # name a model this SDK has never heard of.  It warns, though.
+        loaded = load_config_file(path)
+        assert loaded["new-llm"].default_model == "nonexistent-model"
+
+        strict = config.replace(
+            'default_model: "nonexistent-model"',
+            'default_model: "nonexistent-model"\n    allow_unknown_models: false',
+        )
+        strict_path = tmp_path / "providers-strict.yaml"
+        strict_path.write_text(strict)
         with pytest.raises(ConfigError, match="default_model"):
-            load_config_file(path)
+            load_config_file(strict_path)
 
 
 # ---------------------------------------------------------------------------

@@ -19,6 +19,78 @@ Added · Changed · Deprecated · Removed · Fixed · Security
 
 ---
 
+## [0.2.0] — 2026-08-11
+
+A model-resolution release. The registry stops being an allowlist that could
+block valid models, the model catalogue is refreshed against vendor
+documentation, and several silent-drop bugs in request construction are fixed.
+
+**Migration in one line:** if you pinned `deepseek-chat` or `deepseek-reasoner`,
+nothing breaks — they now resolve to `deepseek-v4-flash` — but you should move
+to the V4 ids, because the vendor retired the old ones on 2026-07-24.
+
+### Fixed
+
+- **The client-wide default model leaked across providers.** `UniversalAI` stored a single `_default_model` string taken from the constructor provider, then used it as the fallback for *every* provider the client called. A client built for DeepSeek that issued `client.chat(..., provider="qwen")` resolved the DeepSeek model against Qwen's catalogue and raised `ValueError: Model 'deepseek-chat' not found for provider 'qwen'`. The same fault hit `embed()`, `rerank()`, `supports()` and streaming chat — every public entry point that accepts a `provider=` override.
+
+  Defaults are now keyed by provider. A constructor `model=` belongs to the provider it was supplied with; any other provider falls back to its own default.
+
+- **`embed()` and `rerank()` inherited the *chat* default model.** `UniversalAI(provider="qwen").embed("hi")` raised `FeatureNotSupportedError` for `qwen-plus` even though Qwen ships `text-embedding-v4` and `qwen3-rerank`. `ProviderConfig` gained `default_embedding_model` and `default_rerank_model`, and resolution falls back to the first model advertising the required capability.
+
+- **A constructor `model=` was never validated.** `UniversalAI(provider="deepseek", model="gpt-4o")` constructed successfully and failed only at the first `chat()`. Worse, `model="qwen-plus"` with `provider="deepseek"` was silently accepted. Both are now caught at construction, and a model belonging to a different registered provider produces an error naming that provider.
+
+- **Generation parameters were silently dropped.** `frequency_penalty`, `presence_penalty` and `user` were valid `UnifiedRequest` fields that `_build_request_body` never serialized, so callers set them and the provider never saw them.
+
+- **Unknown `chat()` keyword arguments were silently discarded.** `client.chat(..., seed=42)` dropped `seed` and sent the request anyway. Unrecognised names now raise `TypeError` listing the supported fields.
+
+- **The chat path bypassed the provider adapters entirely.** `_build_request_body` hand-rolled an OpenAI-shaped body and posted to a hardcoded `/chat/completions`, so every adapter's `format_request` was dead code — MiniMax's content-block flattening and the penalty/user fields among them. Chat now routes through `adapter.format_request` and an overridable `chat_path`.
+
+- **The config-file loader was never invoked.** `loader.py` documented that `apply_to_registry` ran "automatically during `UniversalAI` initialisation"; it did not, so a `providers.yaml` on disk had no effect. The client now discovers and applies the file at construction, with a new `config_path=` argument for an explicit path.
+
+- **Environment overrides bypassed schema validation.** `apply_env_overrides_to_config` used `model_copy(update=...)`, which does not re-run validators, so an invalid override surfaced later inside a request. The config is now reconstructed and re-validated, and an invalid override is warned about and ignored.
+
+- **Model-id resolution was implemented three times** — in the client, the enforcer and the schema — with divergent error messages, and `client._resolve_model(provider, model_id)` ignored its `model_id` argument entirely. All resolution now funnels through `ProviderConfig.resolve_model`.
+
+- **Adapters carried their own `_DEFAULT_MODEL` constants**, a third source of truth that had drifted (DeepSeek's still named the retired `deepseek-chat`). Adapters now read the registry via `BaseProviderAdapter.default_model()`.
+
+- Middleware labels (metrics, cache keys, traces) now use the **canonical** model id, so an alias and its target aggregate as one series instead of splitting into two.
+
+### Added
+
+- **Unknown model ids are forwarded to the provider** instead of raising, so a model released after this SDK version is usable immediately — `UniversalAI(model="deepseek-v4-flash-0731")` works with no upgrade. Capability checks for such an id fall back to the provider's aggregate capabilities, and a warning is logged. Opt out with `strict_models=True` or `UAI_PROVIDER_{NAME}_ALLOW_UNKNOWN_MODELS=false`.
+- **Provider inference from the model id.** `UniversalAI(model="glm-4.7")` resolves to the `glm` provider when the id maps to exactly one registered provider; ambiguity and unknown ids raise rather than guess.
+- **`UAI_PROVIDER_{NAME}_DEFAULT_MODEL`**, `_DEFAULT_EMBEDDING_MODEL`, `_DEFAULT_RERANK_MODEL` and `_ALLOW_UNKNOWN_MODELS` environment overrides. Previously no environment variable could set the model at all.
+- **`ModelNotFoundError`** (a `UAIError`), replacing bare `ValueError`s that could not be caught through the SDK's own exception hierarchy. It distinguishes an unknown id from one belonging to another provider, and names the remedy.
+- `ProviderConfig.resolve_model`, `knows_model`, `default_model_for`, and `find_providers_for_model` in the registry API.
+- An optional `dotenv` extra (`pip install "uai-sdk[dotenv]"`) plus explicit documentation that **the SDK does not read `.env` files** — it reads the process environment, so a `.env` must be loaded by the application first.
+
+### Changed
+
+- **The model catalogue was rebuilt against vendor documentation (2026-08).** The previous registry contained model ids that do not exist and capability claims with no backing — `deepseek-chat` advertising `embeddings`, StepFun's *vision chat model* advertising `embeddings`, a `glm-4.7` alias pointing at the unrelated `glm-4.5v`.
+
+  | Provider | Was (default) | Now (default) |
+  |---|---|---|
+  | DeepSeek | `deepseek-chat` | `deepseek-v4-flash` |
+  | Qwen | `qwen-plus` | `qwen3.7-plus` |
+  | GLM | `glm-4.7` | `glm-4.7` |
+  | Kimi | `kimi-k2.5` | `kimi-k3` |
+  | StepFun | `stepfun-2.5` | `step-3.7-flash` |
+  | Doubao | `doubao-pro-32k` | `doubao-seed-2-0-pro` |
+  | MiniMax | `minimax-m2.5` | `MiniMax-M3` |
+  | Hunyuan | `hunyuan-turbo` | `hunyuan-turbo-latest` |
+
+  DeepSeek, Qwen, Kimi, MiniMax and GLM entries are verified against vendor docs; StepFun, Doubao and Hunyuan are best-effort and marked as such in `providers.py`. Kimi's base URL moved to `api.moonshot.ai`, MiniMax's to `api.minimax.io`, and Doubao's key variable is now `ARK_API_KEY`.
+
+- **`pricing` is `0.0` wherever a per-token rate could not be verified.** Zero means *unknown*, not free; `uai.benchmark` cost figures are only meaningful for models with populated pricing. Fabricated prices were removed rather than carried forward.
+
+- `provider=` on the constructor now defaults to `None` (inferred, or `deepseek`) instead of the literal `"deepseek"`. Existing positional and keyword usage is unaffected.
+
+### Deprecated
+
+- `deepseek-chat`, `deepseek-chat-latest`, `deepseek-reasoner` and `deepseek-reasoner-latest` are retained as **aliases** of `deepseek-v4-flash`, the successor the vendor named when the ids were discontinued on 2026-07-24. Thinking mode moved from a model id to a request parameter under V4, so the adapter no longer infers `reasoning_format` from the model name.
+
+---
+
 ## [0.1.5] — 2026-08-10
 
 A correctness, documentation, and packaging-metadata release.

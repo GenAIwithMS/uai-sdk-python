@@ -143,8 +143,8 @@ inspected and managed programmatically:
 breaker = CircuitBreakerMiddleware(failure_threshold=5)
 client.use(breaker)
 
-breaker.state("deepseek", "deepseek-chat")  # "closed" | "open" | "half_open"
-breaker.failures("deepseek", "deepseek-chat")
+breaker.state("deepseek", "deepseek-v4-flash")  # "closed" | "open" | "half_open"
+breaker.failures("deepseek", "deepseek-v4-flash")
 breaker.reset()                              # close everything
 ```
 

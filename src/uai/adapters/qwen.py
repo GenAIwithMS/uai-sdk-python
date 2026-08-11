@@ -35,7 +35,6 @@ from uai.models import (
 )
 from uai.structured import parse_structured_output
 
-_DEFAULT_MODEL = "qwen-plus"
 _DEFAULT_RERANK_MODEL = "gte-rerank"
 
 _FINISH_REASON_MAP = {
@@ -72,7 +71,7 @@ class QwenAdapter(BaseProviderAdapter):
         """Translate UnifiedRequest to Qwen API format."""
         body: dict[str, Any] = {}
 
-        body["model"] = request.model or _DEFAULT_MODEL
+        body["model"] = request.model or self.default_model()
         body["messages"] = self._format_messages(request.messages)
 
         generation = {

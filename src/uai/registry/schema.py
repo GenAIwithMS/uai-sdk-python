@@ -11,6 +11,7 @@ mis-configuration fails fast.
 
 from __future__ import annotations
 
+import logging
 from enum import Enum
 
 from pydantic import (
@@ -20,6 +21,8 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -172,7 +175,24 @@ class ProviderConfig(BaseModel):
         description="Mapping of model_id -> ProviderModel metadata.",
     )
     default_model: str = Field(
-        min_length=1, description="Model used when no model is explicitly requested."
+        min_length=1, description="Chat model used when no model is explicitly requested."
+    )
+    default_embedding_model: str | None = Field(
+        default=None,
+        description="Model used by ``embed()`` when none is requested. Falls back to the "
+        "first model advertising the ``embeddings`` capability.",
+    )
+    default_rerank_model: str | None = Field(
+        default=None,
+        description="Model used by ``rerank()`` when none is requested. Falls back to the "
+        "first model advertising the ``rerank`` capability.",
+    )
+    allow_unknown_models: bool = Field(
+        default=True,
+        description="When True, a model id absent from ``models`` is passed through to the "
+        "provider with permissive capabilities instead of raising. Keeps the SDK usable on "
+        "the day a provider ships a new model, at the cost of pre-flight capability checks "
+        "for that id. Set False (or ``strict_models=True`` on the client) to hard-fail.",
     )
     api_version: str = Field(default="v1", description="Provider API version.")
     timeout: float = Field(
@@ -227,12 +247,50 @@ class ProviderConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_models_and_default(self) -> ProviderConfig:
-        # default_model must reference an entry in models
-        if self.default_model not in self.models:
-            raise ValueError(
-                f"default_model '{self.default_model}' is not defined in models. "
-                f"Available models: {list(self.models.keys())}"
-            )
+        # Each default must resolve to a real entry (id *or* alias).  Aliases
+        # are accepted so a config file can point a default at, say,
+        # "kimi-latest" without restating the canonical id.
+        for field_name, capability in (
+            ("default_model", "chat"),
+            ("default_embedding_model", "embeddings"),
+            ("default_rerank_model", "rerank"),
+        ):
+            value = getattr(self, field_name)
+            if value is None:
+                continue
+            found = self._lookup(value)
+            if found is None:
+                # An unregistered default is legitimate when pass-through is
+                # on: it is how a user points at a model the provider shipped
+                # after this SDK release.  Under strict_models it is a typo.
+                if self.allow_unknown_models:
+                    logger.warning(
+                        "[uai] provider '%s': %s is '%s', which is not among its "
+                        "declared models (%s). It will be sent to the provider "
+                        "as-is; set allow_unknown_models=false to make this an error.",
+                        self.name,
+                        field_name,
+                        value,
+                        ", ".join(self.models) or "none",
+                    )
+                    continue
+                raise ValueError(
+                    f"{field_name} '{value}' is not defined in models. "
+                    f"Available models: {list(self.models.keys())}"
+                )
+            model = found[1]
+            declared = model.capabilities.model_dump()
+            if not any(declared.values()):
+                # A model that declares no capabilities at all is
+                # under-specified, not wrong — common in hand-written config
+                # files and minimal fixtures. Only contradict an explicit
+                # declaration, never an absent one.
+                continue
+            if not declared.get(capability):
+                raise ValueError(
+                    f"{field_name} '{value}' does not advertise the '{capability}' "
+                    f"capability. Pick a model whose capabilities include it."
+                )
 
         # all model ids must be unique — dict keys already enforce this,
         # but aliases must not conflict with real ids
@@ -270,16 +328,106 @@ class ProviderConfig(BaseModel):
         return agg
 
     def get_model(self, model_id: str) -> ProviderModel:
-        """Return the ``ProviderModel`` for *model_id*, falling back to aliases."""
-        if model_id in self.models:
-            return self.models[model_id]
-        for model in self.models.values():
+        """
+        Return the ``ProviderModel`` for *model_id*, falling back to aliases.
+
+        Strict: unknown ids always raise.  Use :meth:`resolve_model` for the
+        pass-through behaviour that honours ``allow_unknown_models``.
+        """
+        resolved = self._lookup(model_id)
+        if resolved is None:
+            raise ValueError(
+                f"Model '{model_id}' not found for provider '{self.name}'. "
+                f"Available: {list(self.models.keys())}"
+            )
+        return resolved[1]
+
+    def _lookup(self, model_id: str) -> tuple[str, ProviderModel] | None:
+        """Resolve *model_id* (id or alias) to ``(canonical_id, model)``."""
+        direct = self.models.get(model_id)
+        if direct is not None:
+            return model_id, direct
+        for mid, model in self.models.items():
             if model_id in model.aliases:
-                return model
-        raise ValueError(
-            f"Model '{model_id}' not found for provider '{self.name}'. "
-            f"Available: {list(self.models.keys())}"
+                return mid, model
+        return None
+
+    def knows_model(self, model_id: str) -> bool:
+        """Return True if *model_id* is a known id or alias for this provider."""
+        return self._lookup(model_id) is not None
+
+    def resolve_model(
+        self,
+        model_id: str,
+        *,
+        allow_unknown: bool | None = None,
+    ) -> tuple[str, ProviderModel, bool]:
+        """
+        Resolve *model_id* to ``(canonical_id, model, is_unregistered)``.
+
+        Aliases are dereferenced to their canonical id.  When *model_id* is
+        unknown and pass-through is permitted, a permissive placeholder is
+        synthesized so a model released after this SDK version still reaches
+        the provider — the third tuple element flags that case so callers can
+        soften capability enforcement and warn.
+
+        :param allow_unknown: Overrides ``self.allow_unknown_models`` when set.
+        :raises ValueError: If the model is unknown and pass-through is off.
+        """
+        found = self._lookup(model_id)
+        if found is not None:
+            return found[0], found[1], False
+
+        permitted = self.allow_unknown_models if allow_unknown is None else allow_unknown
+        if not permitted:
+            raise ValueError(
+                f"Model '{model_id}' not found for provider '{self.name}'. "
+                f"Available: {list(self.models.keys())}"
+            )
+        return model_id, self._synthesize_model(model_id), True
+
+    def _synthesize_model(self, model_id: str) -> ProviderModel:
+        """
+        Build a permissive :class:`ProviderModel` for an unregistered id.
+
+        Capabilities are the union advertised by this provider's known models
+        rather than blanket ``True``: it keeps genuinely impossible requests
+        (asking a rerank-less provider to rerank) failing fast, while never
+        blocking a request the provider can plausibly serve.  Context and
+        pricing are unknown, so context/output limits take the provider's
+        maximum and pricing stays zero — callers must not treat cost estimates
+        for an unregistered model as authoritative.
+        """
+        known = list(self.models.values())
+        return ProviderModel(
+            id=model_id,
+            display_name=f"{self.display_name} {model_id} (unregistered)",
+            context_window=max((m.context_window for m in known), default=128_000),
+            max_output_tokens=max((m.max_output_tokens for m in known), default=4_096),
+            capabilities=self.capabilities,
         )
+
+    def default_model_for(self, capability: str) -> str:
+        """
+        Return the default model id for *capability* (``chat``/``embeddings``/``rerank``).
+
+        Resolution order: the explicitly configured per-modality default, then
+        the first registered model advertising the capability, then
+        ``default_model``.  Without this, ``embed()`` would inherit the *chat*
+        default and fail a capability check on a provider that does offer
+        embeddings.
+        """
+        explicit = {
+            "chat": self.default_model,
+            "embeddings": self.default_embedding_model,
+            "rerank": self.default_rerank_model,
+        }.get(capability)
+        if explicit:
+            return explicit
+        for model_id, model in self.models.items():
+            if getattr(model.capabilities, capability, False):
+                return model_id
+        return self.default_model
 
     @property
     def all_model_ids(self) -> list[str]:

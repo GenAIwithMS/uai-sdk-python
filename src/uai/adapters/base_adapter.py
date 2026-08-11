@@ -43,10 +43,25 @@ class BaseProviderAdapter(abc.ABC):
 
     provider_name: str = ""
 
-    # Endpoint paths used for multimodal / non-chat features.  Providers
+    # Endpoint paths appended to the provider's ``base_url``.  Providers
     # override these when their wire paths differ from the defaults.
+    chat_path: str = "/chat/completions"
     embed_path: str = "/embeddings"
     rerank_path: str = "/rerank"
+
+    def default_model(self) -> str:
+        """
+        Return this provider's default model id, read from the registry.
+
+        Adapters previously each carried a private ``_DEFAULT_MODEL``
+        constant, giving the SDK three places to state a default (registry,
+        client, adapter) that drifted apart — DeepSeek's adapter still named
+        ``deepseek-chat`` months after that id was retired. Reading the
+        registry keeps a single source of truth.
+        """
+        from uai.registry import get_provider_config
+
+        return get_provider_config(self.provider_name).default_model
 
     @abc.abstractmethod
     def authenticate(self, credentials: dict[str, Any]) -> None:

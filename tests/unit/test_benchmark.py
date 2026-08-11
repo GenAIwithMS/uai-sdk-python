@@ -37,7 +37,7 @@ class TestBenchmarkResult:
     def test_aggregation(self):
         result = BenchmarkResult(
             provider="deepseek",
-            model="deepseek-chat",
+            model="deepseek-v4-flash",
             iterations=3,
             samples=[
                 SampleResult(
@@ -83,7 +83,7 @@ class TestBenchmarkModels:
             client_factory=lambda p: FakeChatClient(),
         )
         models = {r.model for r in results}
-        assert "deepseek-chat" in models
+        assert "deepseek-v4-flash" in models
         for r in results:
             assert r.success_count == 2
             assert r.error_rate == 0.0
@@ -103,16 +103,16 @@ class TestBenchmarkModels:
     def test_models_filter(self):
         results = benchmark_models(
             providers=["deepseek"],
-            models=["deepseek-chat"],
+            models=["deepseek-v4-flash"],
             iterations=1,
             client_factory=lambda p: FakeChatClient(),
         )
-        assert [r.model for r in results] == ["deepseek-chat"]
+        assert [r.model for r in results] == ["deepseek-v4-flash"]
 
     def test_models_filter_skips_models_not_in_provider(self):
         results = benchmark_models(
             providers=["deepseek", "qwen"],
-            models=["deepseek-chat"],
+            models=["deepseek-v4-flash"],
             iterations=1,
             client_factory=lambda p: FakeChatClient(),
         )
@@ -121,7 +121,7 @@ class TestBenchmarkModels:
     def test_non_streaming_uses_reported_usage(self):
         results = benchmark_models(
             providers=["deepseek"],
-            models=["deepseek-chat"],
+            models=["deepseek-v4-flash"],
             iterations=1,
             stream=False,
             client_factory=lambda p: FakeChatClient(),
@@ -147,8 +147,8 @@ class TestCLI:
         code = main(["list-models", "deepseek"])
         out = capsys.readouterr().out
         assert code == 0
-        assert "deepseek-chat" in out
-        assert "deepseek-reasoner" in out
+        assert "deepseek-v4-flash" in out
+        assert "deepseek-v4-pro" in out
 
     def test_benchmark_command(self, monkeypatch, capsys):
         import uai.cli as cli_module
@@ -156,7 +156,7 @@ class TestCLI:
         fake_results = [
             BenchmarkResult(
                 provider="deepseek",
-                model="deepseek-chat",
+                model="deepseek-v4-flash",
                 iterations=1,
                 samples=[
                     SampleResult(
@@ -175,7 +175,7 @@ class TestCLI:
         code = cli_module.main(["benchmark", "--providers", "deepseek", "--iterations", "1"])
         out = capsys.readouterr().out
         assert code == 0
-        assert "deepseek-chat" in out
+        assert "deepseek-v4-flash" in out
 
     def test_benchmark_json_output(self, monkeypatch, capsys):
         import json
@@ -185,7 +185,7 @@ class TestCLI:
         fake_results = [
             BenchmarkResult(
                 provider="deepseek",
-                model="deepseek-chat",
+                model="deepseek-v4-flash",
                 iterations=1,
                 samples=[SampleResult(success=True, latency_ms=50.0, output_tokens=4)],
             )
@@ -199,7 +199,7 @@ class TestCLI:
         assert code == 0
         payload = json.loads(out)
         assert payload["results"][0]["provider"] == "deepseek"
-        assert payload["results"][0]["model"] == "deepseek-chat"
+        assert payload["results"][0]["model"] == "deepseek-v4-flash"
 
     def test_benchmark_skips_provider_without_key(self, monkeypatch, capsys):
         import uai.cli as cli_module

@@ -66,8 +66,9 @@ class TestFormatRequest:
         assert body["messages"] == [{"role": "user", "content": "Hello"}]
 
     def test_default_model_when_none(self):
+        """Falls back to the registry default rather than a private constant."""
         body = MiniMaxAdapter().format_request(make_request(model=None))
-        assert body["model"] == "minimax-m2.5"
+        assert body["model"] == "MiniMax-M3"
 
     def test_penalties_included(self):
         body = MiniMaxAdapter().format_request(

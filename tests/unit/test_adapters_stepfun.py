@@ -63,8 +63,9 @@ class TestFormatRequest:
         assert body["messages"] == [{"role": "user", "content": "Hello"}]
 
     def test_default_model_when_none(self):
+        """Falls back to the registry default rather than a private constant."""
         body = StepFunAdapter().format_request(make_request(model=None))
-        assert body["model"] == "stepfun-2.5"
+        assert body["model"] == "step-3.7-flash"
 
     def test_penalties_included(self):
         body = StepFunAdapter().format_request(

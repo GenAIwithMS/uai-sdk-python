@@ -69,8 +69,9 @@ class TestFormatRequest:
         assert body["messages"] == [{"role": "user", "content": "Hello"}]
 
     def test_default_model_when_none(self):
+        """Falls back to the registry default rather than a private constant."""
         body = HunyuanAdapter().format_request(make_request(model=None))
-        assert body["model"] == "hunyuan-turbo"
+        assert body["model"] == "hunyuan-turbo-latest"
 
     def test_penalties_included(self):
         body = HunyuanAdapter().format_request(

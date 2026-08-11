@@ -18,13 +18,25 @@ Supported environment variables per provider ``NAME``:
     UAI_PROVIDER_{NAME}_RATE_LIMIT_TPM    override tokens-per-minute limit
     UAI_PROVIDER_{NAME}_AUTH_TYPE         override auth method
     UAI_PROVIDER_{NAME}_API_KEY_ENV       override the env var name holding the API key
+    UAI_PROVIDER_{NAME}_DEFAULT_MODEL     override the default chat model
+    UAI_PROVIDER_{NAME}_DEFAULT_EMBEDDING_MODEL   override the default embeddings model
+    UAI_PROVIDER_{NAME}_DEFAULT_RERANK_MODEL      override the default rerank model
 
 Boolean environment variables (for feature flags):
+
+    UAI_PROVIDER_{NAME}_ALLOW_UNKNOWN_MODELS
+        Set to false to reject model ids absent from the registry instead of
+        passing them through to the provider.
 
     UAI_PROVIDER_{NAME}_DISABLE_{CAPABILITY}
         Set to true/false to force-disable a capability (e.g. VISION, TOOLS)
         across all models of a provider.  Useful for cost-control or
         compliance overrides.
+
+Note that these are read from the *process environment*.  The SDK does not
+parse ``.env`` files itself — load one with ``python-dotenv`` (available as
+the ``uai-sdk[dotenv]`` extra) before constructing a client, or export the
+variables in your shell.
 """
 
 from __future__ import annotations
@@ -33,6 +45,8 @@ import logging
 import os
 import re
 from typing import Any
+
+from pydantic import ValidationError
 
 from .providers import PROVIDER_REGISTRY
 from .schema import AuthType, ProviderCapabilities, ProviderConfig
@@ -56,6 +70,15 @@ _STRING_FIELD_MAP: dict[str, tuple[str, type]] = {
     "API_VERSION": ("api_version", str),
     "DOCUMENTATION_URL": ("documentation_url", str),
     "API_KEY_ENV": ("api_key_env_var", str),
+    "DEFAULT_MODEL": ("default_model", str),
+    "DEFAULT_EMBEDDING_MODEL": ("default_embedding_model", str),
+    "DEFAULT_RERANK_MODEL": ("default_rerank_model", str),
+}
+
+# Env-suffix -> config-field for plain boolean flags (distinct from the
+# DISABLE_{CAPABILITY} pattern, which targets nested model capabilities).
+_BOOL_FIELD_MAP: dict[str, str] = {
+    "ALLOW_UNKNOWN_MODELS": "allow_unknown_models",
 }
 
 # Valid capability field names that can be targeted by feature flags.
@@ -163,6 +186,16 @@ def get_env_overrides(provider_name: str) -> dict[str, Any]:
             continue
         overrides[field] = _safe_str(raw)
 
+    # --- Plain boolean fields ------------------------------------------
+    for env_suffix, field in _BOOL_FIELD_MAP.items():
+        raw = os.environ.get(f"UAI_PROVIDER_{upper}_{env_suffix}")
+        if raw is None or not raw.strip():
+            continue
+        try:
+            overrides[field] = _parse_bool(raw)
+        except ValueError:
+            _warn_invalid(env_suffix, raw, provider_name, "boolean")
+
     # --- Auth type -----------------------------------------------------
     raw_auth = os.environ.get(f"UAI_PROVIDER_{upper}_AUTH_TYPE")
     if raw_auth is not None and raw_auth.strip():
@@ -226,9 +259,23 @@ def apply_env_overrides_to_config(
             new_models[model_id] = model.model_copy(update={"capabilities": PC(**cap_dict)})
         overrides["models"] = new_models
 
-    if overrides:
-        return config.model_copy(update=overrides)
-    return config
+    if not overrides:
+        return config
+
+    # Reconstruct rather than ``model_copy(update=...)``: model_copy skips
+    # validators, which would let UAI_PROVIDER_X_DEFAULT_MODEL install a
+    # default that fails its capability check and only blow up later, deep in
+    # a request. Rebuilding runs the schema again at configuration time.
+    merged: dict[str, Any] = {**config.model_dump(), **overrides}
+    try:
+        return ProviderConfig(**merged)
+    except ValidationError as exc:
+        logger.warning(
+            "[uai] environment overrides for provider '%s' are invalid and were ignored: %s",
+            config.name,
+            exc,
+        )
+        return config
 
 
 def apply_env_overrides(

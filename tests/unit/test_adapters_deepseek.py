@@ -84,8 +84,9 @@ class TestFormatRequest:
         assert body["temperature"] == 0.5
 
     def test_default_model_when_none(self):
+        """Falls back to the registry default rather than a private constant."""
         body = DeepSeekAdapter().format_request(make_request(model=None))
-        assert body["model"] == "deepseek-chat"
+        assert body["model"] == "deepseek-v4-flash"
 
     def test_stop_wrapped_in_list(self):
         body = DeepSeekAdapter().format_request(make_request(stop="END"))
@@ -109,9 +110,18 @@ class TestFormatRequest:
         assert body["frequency_penalty"] == 0.5
         assert body["presence_penalty"] == 0.2
 
-    def test_reasoner_adds_reasoning_format(self):
+    def test_no_reasoning_param_inferred_from_model_name(self):
+        """
+        V4 selects thinking mode by request parameter, not by model id.
+
+        The adapter used to inject ``reasoning_format`` whenever the model was
+        ``deepseek-reasoner``; that id was retired 2026-07-24 and the branch
+        would now silently attach an unsupported field to every request made
+        with the legacy alias.
+        """
         body = DeepSeekAdapter().format_request(make_request(model="deepseek-reasoner"))
-        assert body["reasoning_format"] == "detailed"
+        assert "reasoning_format" not in body
+        assert body["model"] == "deepseek-reasoner"
 
     def test_tools_and_choice(self):
         request = make_request(

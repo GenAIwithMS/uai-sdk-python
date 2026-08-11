@@ -9,7 +9,7 @@ contain a list of content blocks mixing text and images
 native multimodal schema.
 
 Supported providers/models: Qwen (`qwen-vl-max`), StepFun (`stepfun-vision`),
-Doubao (`doubao-vision`), MiniMax (`minimax-m2.5`), Hunyuan (`hunyuan-vision`).
+Doubao (`doubao-vision`), MiniMax (`MiniMax-M3`), Hunyuan (`hunyuan-vision`).
 
 ## Usage
 

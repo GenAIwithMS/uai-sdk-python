@@ -31,8 +31,8 @@ class TestEnforcerUnit:
         assert enforcer.supports("embeddings") is False
 
     def test_alias_resolution(self):
-        enforcer = CapabilityMatrixEnforcer("deepseek", "deepseek-chat-1")
-        assert enforcer.model == "deepseek-chat"
+        enforcer = CapabilityMatrixEnforcer("deepseek", "deepseek-chat-latest")
+        assert enforcer.model == "deepseek-v4-flash"
         assert enforcer.supports("chat") is True
 
     def test_unknown_capability_raises_value_error(self):
@@ -50,7 +50,7 @@ class TestEnforcerUnit:
             enforcer.assert_supported("vision")
         assert exc_info.value.feature == "vision"
         assert exc_info.value.provider == "deepseek"
-        assert exc_info.value.model == "deepseek-chat"
+        assert exc_info.value.model == "deepseek-v4-flash"
         assert "vision" in str(exc_info.value)
 
     def test_assert_supported_passes_for_supported(self):

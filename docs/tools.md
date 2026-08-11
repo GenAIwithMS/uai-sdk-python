@@ -28,7 +28,7 @@ tools = [
 result = client.chat(
     messages=[{"role": "user", "content": "What's the weather in Beijing?"}],
     tools=tools,
-    model="deepseek-chat",
+    model="deepseek-v4-flash",
 )
 ```
 
@@ -56,7 +56,7 @@ if result.tool_calls:
                     "content": observation,
                 },
             ],
-            model="deepseek-chat",
+            model="deepseek-v4-flash",
         )
 ```
 

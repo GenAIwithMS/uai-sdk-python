@@ -57,22 +57,30 @@ class CapabilityMatrixEnforcer:
         *,
         adapter: BaseProviderAdapter | None = None,
         config: ProviderConfig | None = None,
+        model_info: ProviderModel | None = None,
     ) -> None:
         """
         Args:
             provider: Canonical provider name (e.g. ``'deepseek'``).
-            model: Model id or alias (e.g. ``'deepseek-chat'``).
+            model: Model id or alias (e.g. ``'deepseek-v4-flash'``).
             adapter: Optional adapter instance whose ``capabilities()``
                 matrix is cross-checked against the registry.
             config: Optional pre-resolved :class:`ProviderConfig`.  When
                 omitted, the provider is looked up in the registry.
+            model_info: Optional pre-resolved :class:`ProviderModel`.  The
+                client passes this so an unregistered-but-permitted model
+                keeps the placeholder metadata it was resolved with, rather
+                than being looked up a second time and rejected.
 
         :raises ValueError: If the provider or model is unknown.
         """
         provider_lower = provider.lower()
         self.provider = provider_lower
         self._config = config or get_provider_config(provider_lower)
-        self._model_id, self._model_info = self._resolve_model(self._config, model)
+        if model_info is not None:
+            self._model_id, self._model_info = model, model_info
+        else:
+            self._model_id, self._model_info = self._resolve_model(self._config, model)
         self._adapter = adapter
         # Cache the adapter matrix once — it is read on every supports() call.
         self._adapter_matrix: dict[str, bool] | None = (

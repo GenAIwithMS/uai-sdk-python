@@ -28,21 +28,21 @@ from uai.models import (
 
 def make_request(**overrides) -> UnifiedRequest:
     params: dict = {
-        "model": "deepseek-chat",
+        "model": "deepseek-v4-flash",
         "messages": [ChatMessage(role=Role.USER, content="Hello")],
     }
     params.update(overrides)
     return UnifiedRequest(**params)
 
 
-def ctx(operation="chat", provider="deepseek", model="deepseek-chat", **overrides):
+def ctx(operation="chat", provider="deepseek", model="deepseek-v4-flash", **overrides):
     params = dict(operation=operation, provider=provider, model=model, request=make_request())
     params.update(overrides)
     return MiddlewareContext(**params)
 
 
 def base_labels(**extra) -> dict[str, str]:
-    labels = {"operation": "chat", "provider": "deepseek", "model": "deepseek-chat"}
+    labels = {"operation": "chat", "provider": "deepseek", "model": "deepseek-v4-flash"}
     labels.update(extra)
     return labels
 
@@ -220,7 +220,7 @@ class TestMetricsMiddleware:
     def test_records_streaming_ttft(self):
         registry = MetricsRegistry()
         mw = MetricsMiddleware(registry=registry)
-        engine_ctx = ctx(operation="chat", provider="deepseek", model="deepseek-chat")
+        engine_ctx = ctx(operation="chat", provider="deepseek", model="deepseek-v4-flash")
         engine_ctx.request = make_request(stream=True)
 
         def stream_fn(_ctx):
@@ -250,7 +250,7 @@ class TestMetricsMiddleware:
 
             return gen()
 
-        out = engine.run_stream("chat", "deepseek", "deepseek-chat", req, stream_fn)
+        out = engine.run_stream("chat", "deepseek", "deepseek-v4-flash", req, stream_fn)
         list(out)
 
         assert registry.histogram_count("uai_ttft_seconds", base_labels()) == 1
@@ -267,12 +267,12 @@ class TestMetricsMiddleware:
             return UnifiedResponse(
                 content="ok",
                 provider="deepseek",
-                model="deepseek-chat",
+                model="deepseek-v4-flash",
                 finish_reason=FinishReason.STOP,
                 usage=UsageMetrics(input_tokens=7, output_tokens=2),
             )
 
-        engine.run("chat", "deepseek", "deepseek-chat", make_request(), execute_fn)
+        engine.run("chat", "deepseek", "deepseek-v4-flash", make_request(), execute_fn)
         assert registry.counter_value("uai_requests_total", base_labels(status="success")) == 1
         assert registry.histogram_count("uai_request_duration_seconds", base_labels()) == 1
         assert registry.counter_value("uai_tokens_input_total", base_labels()) == 7

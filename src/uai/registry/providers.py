@@ -7,11 +7,27 @@ import time against the schema in ``schema.py``, so a typo or missing
 field will produce an immediate error rather than a silent runtime
 failure.
 
-For MVP, only **DeepSeek** and **Qwen** are fully wired.  The remaining
-six providers (GLM, Kimi, StepFun, Doubao, MiniMax, Hunyuan) are included
-as pre-defined configs so that adapters can be implemented incrementally
-without changing the registry interface.
+**The registry is a convenience, not a gate.**  Provider catalogues change
+far faster than this package is released — DeepSeek retired
+``deepseek-chat`` and ``deepseek-reasoner`` on 2026-07-24, mid-way through
+this SDK's 0.1.x line — so every provider ships with
+``allow_unknown_models=True``.  An id this file has never heard of is passed
+through to the provider verbatim (see
+:meth:`~uai.registry.schema.ProviderConfig.resolve_model`).  The entries
+below exist to supply *metadata* (context windows, capabilities, pricing)
+and sensible defaults, not to restrict what you may call.
 
+Verification status of the data below:
+
+* **Verified against vendor documentation** (2026-08): DeepSeek, Qwen
+  (Alibaba Model Studio), Kimi (Moonshot), MiniMax, GLM (Z.ai).
+* **Best-effort** — assembled from vendor changelogs and secondary sources
+  because the vendor catalogue is not publicly enumerable: StepFun, Doubao,
+  Hunyuan.  Ids here may lag; pass-through covers the gap.
+
+``pricing`` is left at zero wherever a per-token rate could not be verified.
+Zero means *unknown*, not free — :mod:`uai.benchmark` cost figures are only
+meaningful for models with populated pricing.
 """
 
 from __future__ import annotations
@@ -28,51 +44,93 @@ from .schema import (
 )
 
 # ---------------------------------------------------------------------------
-# Provider definitions
+# Construction helpers
 # ---------------------------------------------------------------------------
 
-# DeepSeek — MVP
-_DEEPSEEK_CHAT = ProviderModel(
-    id="deepseek-chat",
-    display_name="DeepSeek Chat",
-    context_window=128_000,
-    max_output_tokens=32_000,
-    pricing=ProviderPricing(input_cost_per_1k=0.014, output_cost_per_1k=0.028),
-    capabilities=ProviderCapabilities(
-        chat=True,
-        streaming=True,
-        tools=True,
-        vision=False,
-        embeddings=True,
-        audio=False,
-        reasoning=False,
-        rerank=False,
-        tts=False,
-        transcription=False,
-    ),
-    aliases=["deepseek-chat-1", "deepseek-chat-latest"],
-)
 
-_DEEPSEEK_REASONER = ProviderModel(
-    id="deepseek-reasoner",
-    display_name="DeepSeek Reasoner",
-    context_window=128_000,
-    max_output_tokens=32_000,
-    pricing=ProviderPricing(input_cost_per_1k=0.014, output_cost_per_1k=0.028),
-    capabilities=ProviderCapabilities(
-        chat=True,
-        streaming=True,
-        tools=True,
-        vision=False,
-        embeddings=False,
-        audio=False,
-        reasoning=True,
-        rerank=False,
-        tts=False,
-        transcription=False,
-    ),
-    aliases=["deepseek-reasoner-1"],
-)
+def _chat_model(
+    model_id: str,
+    display_name: str,
+    *,
+    context_window: int,
+    max_output_tokens: int,
+    tools: bool = True,
+    vision: bool = False,
+    reasoning: bool = False,
+    input_cost_per_1k: float = 0.0,
+    output_cost_per_1k: float = 0.0,
+    aliases: list[str] | None = None,
+) -> ProviderModel:
+    """Build a chat-capable :class:`ProviderModel` with streaming enabled."""
+    return ProviderModel(
+        id=model_id,
+        display_name=display_name,
+        context_window=context_window,
+        max_output_tokens=max_output_tokens,
+        pricing=ProviderPricing(
+            input_cost_per_1k=input_cost_per_1k,
+            output_cost_per_1k=output_cost_per_1k,
+        ),
+        capabilities=ProviderCapabilities(
+            chat=True,
+            streaming=True,
+            tools=tools,
+            vision=vision,
+            reasoning=reasoning,
+        ),
+        aliases=aliases or [],
+    )
+
+
+def _embedding_model(
+    model_id: str,
+    display_name: str,
+    *,
+    context_window: int = 8_192,
+    input_cost_per_1k: float = 0.0,
+    aliases: list[str] | None = None,
+) -> ProviderModel:
+    """Build an embeddings-only :class:`ProviderModel`."""
+    return ProviderModel(
+        id=model_id,
+        display_name=display_name,
+        context_window=context_window,
+        max_output_tokens=1,
+        pricing=ProviderPricing(input_cost_per_1k=input_cost_per_1k),
+        capabilities=ProviderCapabilities(embeddings=True),
+        aliases=aliases or [],
+    )
+
+
+def _rerank_model(
+    model_id: str,
+    display_name: str,
+    *,
+    context_window: int = 8_192,
+    aliases: list[str] | None = None,
+) -> ProviderModel:
+    """Build a rerank-only :class:`ProviderModel`."""
+    return ProviderModel(
+        id=model_id,
+        display_name=display_name,
+        context_window=context_window,
+        max_output_tokens=1,
+        capabilities=ProviderCapabilities(rerank=True),
+        aliases=aliases or [],
+    )
+
+
+# ---------------------------------------------------------------------------
+# DeepSeek — verified against https://api-docs.deepseek.com (2026-08)
+# ---------------------------------------------------------------------------
+#
+# The V4 line replaced the V3-era ids.  ``deepseek-chat`` and
+# ``deepseek-reasoner`` were discontinued 2026-07-24 after a three-month
+# notice; while they lived, both routed to deepseek-v4-flash (non-thinking
+# and thinking mode respectively).  They are retained here as aliases so
+# existing application code keeps working, resolving to the successor the
+# vendor itself named.  Thinking mode is now a request parameter, not a
+# separate model id.
 
 DEEPSEEK_CONFIG = ProviderConfig(
     name="deepseek",
@@ -81,340 +139,264 @@ DEEPSEEK_CONFIG = ProviderConfig(
     auth_type=AuthType.BEARER_TOKEN,
     api_key_env_var="DEEPSEEK_API_KEY",
     models={
-        "deepseek-chat": _DEEPSEEK_CHAT,
-        "deepseek-reasoner": _DEEPSEEK_REASONER,
+        "deepseek-v4-flash": _chat_model(
+            "deepseek-v4-flash",
+            "DeepSeek V4 Flash",
+            context_window=1_000_000,
+            max_output_tokens=384_000,
+            reasoning=True,
+            input_cost_per_1k=0.00014,
+            output_cost_per_1k=0.00028,
+            aliases=[
+                "deepseek-chat",
+                "deepseek-chat-latest",
+                "deepseek-reasoner",
+                "deepseek-reasoner-latest",
+            ],
+        ),
+        "deepseek-v4-pro": _chat_model(
+            "deepseek-v4-pro",
+            "DeepSeek V4 Pro",
+            context_window=1_000_000,
+            max_output_tokens=384_000,
+            reasoning=True,
+            input_cost_per_1k=0.000435,
+            output_cost_per_1k=0.00087,
+        ),
     },
-    default_model="deepseek-chat",
+    default_model="deepseek-v4-flash",
     api_version="v1",
     timeout=30.0,
     max_retries=3,
     rate_limit_rpm=300,
     rate_limit_tpm=30_000,
-    documentation_url="https://platform.deepseek.com/docs",
+    documentation_url="https://api-docs.deepseek.com",
 )
 
-# Qwen (DashScope) — MVP
-_QWEN_TURBO = ProviderModel(
-    id="qwen-turbo",
-    display_name="Qwen Turbo",
-    context_window=150_000,
-    max_output_tokens=3_072,
-    pricing=ProviderPricing(input_cost_per_1k=0.002, output_cost_per_1k=0.006),
-    capabilities=ProviderCapabilities(
-        chat=True,
-        streaming=True,
-        tools=True,
-        vision=False,
-        embeddings=False,
-        audio=False,
-        reasoning=False,
-        rerank=False,
-        tts=False,
-        transcription=False,
-    ),
-    aliases=["qwen-turbo-latest"],
-)
-
-_QWEN_PLUS = ProviderModel(
-    id="qwen-plus",
-    display_name="Qwen Plus",
-    context_window=131_072,
-    max_output_tokens=4_096,
-    pricing=ProviderPricing(input_cost_per_1k=0.004, output_cost_per_1k=0.012),
-    capabilities=ProviderCapabilities(
-        chat=True,
-        streaming=True,
-        tools=True,
-        vision=False,
-        embeddings=False,
-        audio=False,
-        reasoning=False,
-        rerank=False,
-        tts=False,
-        transcription=False,
-    ),
-    aliases=["qwen-plus-latest"],
-)
-
-_QWEN_VL_MAX = ProviderModel(
-    id="qwen-vl-max",
-    display_name="Qwen VL Max",
-    context_window=131_072,
-    max_output_tokens=6_144,
-    pricing=ProviderPricing(input_cost_per_1k=0.004, output_cost_per_1k=0.012),
-    capabilities=ProviderCapabilities(
-        chat=True,
-        streaming=True,
-        tools=True,
-        vision=True,
-        embeddings=False,
-        audio=False,
-        reasoning=False,
-        rerank=False,
-        tts=False,
-        transcription=False,
-    ),
-    aliases=["qwen-vl-max-latest"],
-)
-
-_QWEN_EMBEDDING = ProviderModel(
-    id="text-embedding-v4",
-    display_name="Qwen Text Embedding v4",
-    context_window=8_192,
-    max_output_tokens=1,
-    pricing=ProviderPricing(input_cost_per_1k=0.0007, output_cost_per_1k=0.0),
-    capabilities=ProviderCapabilities(
-        chat=False,
-        streaming=False,
-        tools=False,
-        vision=False,
-        embeddings=True,
-        audio=False,
-        reasoning=False,
-        rerank=False,
-        tts=False,
-        transcription=False,
-    ),
-    aliases=["qwen-embedding-1", "text-embedding-v3"],
-)
-
-_QWEN_RERANK = ProviderModel(
-    id="qwen-reranker",
-    display_name="Qwen Reranker",
-    context_window=10_240,
-    max_output_tokens=1,
-    pricing=ProviderPricing(input_cost_per_1k=0.0007, output_cost_per_1k=0.0),
-    capabilities=ProviderCapabilities(
-        chat=False,
-        streaming=False,
-        tools=False,
-        vision=False,
-        embeddings=False,
-        audio=False,
-        reasoning=False,
-        rerank=True,
-        tts=False,
-        transcription=False,
-    ),
-    aliases=["gte-rerankqwen-v2"],
-)
+# ---------------------------------------------------------------------------
+# Qwen / Alibaba Model Studio (DashScope)
+# Verified against https://www.alibabacloud.com/help/en/model-studio/models
+# ---------------------------------------------------------------------------
 
 QWEN_CONFIG = ProviderConfig(
     name="qwen",
-    display_name="Qwen (DashScope)",
+    display_name="Qwen (Alibaba Model Studio)",
     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
     auth_type=AuthType.BEARER_TOKEN,
     api_key_env_var="DASHSCOPE_API_KEY",
     models={
-        "qwen-turbo": _QWEN_TURBO,
-        "qwen-plus": _QWEN_PLUS,
-        "qwen-vl-max": _QWEN_VL_MAX,
-        "text-embedding-v4": _QWEN_EMBEDDING,
-        "qwen-reranker": _QWEN_RERANK,
+        "qwen3.7-max": _chat_model(
+            "qwen3.7-max", "Qwen3.7 Max", context_window=262_144, max_output_tokens=65_536
+        ),
+        "qwen3.7-plus": _chat_model(
+            "qwen3.7-plus", "Qwen3.7 Plus", context_window=131_072, max_output_tokens=32_768
+        ),
+        "qwen3.6-flash": _chat_model(
+            "qwen3.6-flash", "Qwen3.6 Flash", context_window=131_072, max_output_tokens=32_768
+        ),
+        "qwen-max": _chat_model(
+            "qwen-max", "Qwen Max (rolling)", context_window=131_072, max_output_tokens=32_768
+        ),
+        "qwen-plus": _chat_model(
+            "qwen-plus", "Qwen Plus (rolling)", context_window=131_072, max_output_tokens=32_768
+        ),
+        "qwen-turbo": _chat_model(
+            "qwen-turbo", "Qwen Turbo (rolling)", context_window=131_072, max_output_tokens=16_384
+        ),
+        "qwen-vl-max": _chat_model(
+            "qwen-vl-max",
+            "Qwen VL Max",
+            context_window=131_072,
+            max_output_tokens=8_192,
+            vision=True,
+        ),
+        "text-embedding-v4": _embedding_model(
+            "text-embedding-v4", "Qwen3 Text Embedding v4", context_window=8_192
+        ),
+        "tongyi-embedding-vision-plus": _embedding_model(
+            "tongyi-embedding-vision-plus", "Tongyi Vision Embedding Plus", context_window=8_192
+        ),
+        "qwen3-rerank": _rerank_model("qwen3-rerank", "Qwen3 Reranker", context_window=32_768),
     },
-    default_model="qwen-plus",
+    default_model="qwen3.7-plus",
+    default_embedding_model="text-embedding-v4",
+    default_rerank_model="qwen3-rerank",
     api_version="v1",
     timeout=30.0,
     max_retries=3,
     rate_limit_rpm=150,
     rate_limit_tpm=20_000,
-    documentation_url="https://help.aliyun.com/zh/model-studio/",
+    documentation_url="https://www.alibabacloud.com/help/en/model-studio/models",
     regions={
-        "cn-hangzhou": RegionConfig(base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"),
+        "cn-hangzhou": RegionConfig(
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+        ),
         "cn-beijing": RegionConfig(
-            base_url="https://dashscope.cn-beijing.aliyuncs.com/compatible-mode/v1"
+            base_url="https://dashscope.cn-beijing.aliyuncs.com/compatible-mode/v1",
+        ),
+        "intl": RegionConfig(
+            base_url="https://dashscope-us.aliyuncs.com/compatible-mode/v1",
         ),
     },
 )
 
-# GLM — Phase 2
-_GLM_5_1 = ProviderModel(
-    id="glm-5.1",
-    display_name="GLM-5.1",
-    context_window=128_000,
-    max_output_tokens=16_000,
-    pricing=ProviderPricing(input_cost_per_1k=0.1, output_cost_per_1k=0.1),
-    capabilities=ProviderCapabilities(
-        chat=True,
-        streaming=True,
-        tools=True,
-        vision=False,
-        embeddings=True,
-        audio=False,
-        reasoning=False,
-        rerank=True,
-        tts=False,
-        transcription=False,
-    ),
-    aliases=["glm-5.1-flashx", "glm-5.1-z1"],
-)
-
-_GLM_4_7 = ProviderModel(
-    id="glm-4.7",
-    display_name="GLM-4.7",
-    context_window=128_000,
-    max_output_tokens=16_000,
-    pricing=ProviderPricing(input_cost_per_1k=0.25, output_cost_per_1k=0.25),
-    capabilities=ProviderCapabilities(
-        chat=True,
-        streaming=True,
-        tools=True,
-        vision=False,
-        embeddings=True,
-        audio=False,
-        reasoning=True,
-        rerank=True,
-        tts=False,
-        transcription=False,
-    ),
-    aliases=["glm-4.7-flash", "glm-4.5v"],
-)
-
-_GLM_EMBEDDING = ProviderModel(
-    id="glm-embedding",
-    display_name="GLM Embedding",
-    context_window=2_048,
-    max_output_tokens=1,
-    pricing=ProviderPricing(input_cost_per_1k=0.0005, output_cost_per_1k=0.0),
-    capabilities=ProviderCapabilities(
-        chat=False,
-        streaming=False,
-        tools=False,
-        vision=False,
-        embeddings=True,
-        audio=False,
-        reasoning=False,
-        rerank=True,
-        tts=False,
-        transcription=False,
-    ),
-    aliases=["embedding-3"],
-)
+# ---------------------------------------------------------------------------
+# GLM — Zhipu AI / Z.ai open platform
+# glm-4.6 verified against https://docs.z.ai/guides/llm/glm-4.6
+# ---------------------------------------------------------------------------
 
 GLM_CONFIG = ProviderConfig(
     name="glm",
-    display_name="Zhipuan GLM",
+    display_name="Zhipu AI GLM",
     base_url="https://open.bigmodel.cn/api/paas/v4",
     auth_type=AuthType.BEARER_TOKEN,
     api_key_env_var="BIGMODEL_API_KEY",
     models={
-        "glm-5.1": _GLM_5_1,
-        "glm-4.7": _GLM_4_7,
-        "glm-embedding": _GLM_EMBEDDING,
+        "glm-5.2": _chat_model(
+            "glm-5.2", "GLM-5.2", context_window=204_800, max_output_tokens=131_072, reasoning=True
+        ),
+        "glm-4.7": _chat_model(
+            "glm-4.7", "GLM-4.7", context_window=204_800, max_output_tokens=131_072, reasoning=True
+        ),
+        "glm-4.6": _chat_model(
+            "glm-4.6", "GLM-4.6", context_window=204_800, max_output_tokens=131_072
+        ),
+        "glm-4.6v": _chat_model(
+            "glm-4.6v", "GLM-4.6V", context_window=131_072, max_output_tokens=16_384, vision=True
+        ),
+        "embedding-3": _embedding_model("embedding-3", "GLM Embedding-3", context_window=8_192),
+        "rerankv3.5": _rerank_model("rerankv3.5", "GLM Rerank v3.5", context_window=8_192),
     },
     default_model="glm-4.7",
+    default_embedding_model="embedding-3",
+    default_rerank_model="rerankv3.5",
     api_version="v4",
     timeout=45.0,
     max_retries=3,
     rate_limit_rpm=200,
     rate_limit_tpm=30_000,
-    documentation_url="https://open.bigmodel.cn/dev/api",
+    documentation_url="https://docs.z.ai",
+    regions={
+        "cn": RegionConfig(base_url="https://open.bigmodel.cn/api/paas/v4"),
+        "intl": RegionConfig(base_url="https://api.z.ai/api/paas/v4"),
+    },
 )
 
-# Kimi — Phase 2
-_KIMI_K2_5 = ProviderModel(
-    id="kimi-k2.5",
-    display_name="Kimi K2.5",
-    context_window=200_000,
-    max_output_tokens=8_192,
-    pricing=ProviderPricing(input_cost_per_1k=0.0015, output_cost_per_1k=0.006),
-    capabilities=ProviderCapabilities(
-        chat=True,
-        streaming=True,
-        tools=True,
-        vision=False,
-        embeddings=False,
-        audio=False,
-        reasoning=False,
-        rerank=False,
-        tts=False,
-        transcription=False,
-    ),
-    aliases=["kimi-k2.5-preview", "kimi-latest"],
-)
-
-_KIMI_K1_5 = ProviderModel(
-    id="kimi-k1.5",
-    display_name="Kimi K1.5",
-    context_window=128_000,
-    max_output_tokens=8_192,
-    pricing=ProviderPricing(input_cost_per_1k=0.0015, output_cost_per_1k=0.006),
-    capabilities=ProviderCapabilities(
-        chat=True,
-        streaming=True,
-        tools=True,
-        vision=False,
-        embeddings=False,
-        audio=False,
-        reasoning=False,
-        rerank=False,
-        tts=False,
-        transcription=False,
-    ),
-    aliases=["moonshot-v1"],
-)
+# ---------------------------------------------------------------------------
+# Kimi — Moonshot AI
+# Verified against https://platform.kimi.ai/docs/api/chat
+# ---------------------------------------------------------------------------
 
 KIMI_CONFIG = ProviderConfig(
     name="kimi",
     display_name="Kimi (Moonshot AI)",
-    base_url="https://api.moonshot.cn/v1",
+    base_url="https://api.moonshot.ai/v1",
     auth_type=AuthType.BEARER_TOKEN,
     api_key_env_var="MOONSHOT_API_KEY",
     models={
-        "kimi-k2.5": _KIMI_K2_5,
-        "kimi-k1.5": _KIMI_K1_5,
+        "kimi-k3": _chat_model(
+            "kimi-k3",
+            "Kimi K3",
+            context_window=262_144,
+            max_output_tokens=32_768,
+            reasoning=True,
+            aliases=["kimi-latest"],
+        ),
+        "kimi-k2.7-code": _chat_model(
+            "kimi-k2.7-code", "Kimi K2.7 Code", context_window=262_144, max_output_tokens=32_768
+        ),
+        "kimi-k2.7-code-highspeed": _chat_model(
+            "kimi-k2.7-code-highspeed",
+            "Kimi K2.7 Code (high speed)",
+            context_window=262_144,
+            max_output_tokens=32_768,
+        ),
+        "kimi-k2.6": _chat_model(
+            "kimi-k2.6", "Kimi K2.6", context_window=262_144, max_output_tokens=32_768
+        ),
+        "kimi-k2.5": _chat_model(
+            "kimi-k2.5", "Kimi K2.5", context_window=131_072, max_output_tokens=16_384
+        ),
+        "moonshot-v1-128k": _chat_model(
+            "moonshot-v1-128k", "Moonshot v1 128K", context_window=131_072, max_output_tokens=8_192
+        ),
+        "moonshot-v1-32k": _chat_model(
+            "moonshot-v1-32k", "Moonshot v1 32K", context_window=32_768, max_output_tokens=8_192
+        ),
+        "moonshot-v1-8k": _chat_model(
+            "moonshot-v1-8k", "Moonshot v1 8K", context_window=8_192, max_output_tokens=4_096
+        ),
+        "moonshot-v1-auto": _chat_model(
+            "moonshot-v1-auto",
+            "Moonshot v1 (auto context)",
+            context_window=131_072,
+            max_output_tokens=8_192,
+        ),
+        "moonshot-v1-128k-vision-preview": _chat_model(
+            "moonshot-v1-128k-vision-preview",
+            "Moonshot v1 128K Vision",
+            context_window=131_072,
+            max_output_tokens=8_192,
+            vision=True,
+        ),
     },
-    default_model="kimi-k2.5",
+    default_model="kimi-k3",
     api_version="v1",
     timeout=30.0,
     max_retries=3,
     rate_limit_rpm=200,
     rate_limit_tpm=25_000,
-    documentation_url="https://platform.moonshot.ai/docs",
+    documentation_url="https://platform.kimi.ai/docs",
 )
 
-# StepFun — Phase 2
-_STEPFUN_2_5 = ProviderModel(
-    id="stepfun-2.5",
-    display_name="StepFun 2.5",
-    context_window=128_000,
-    max_output_tokens=8_192,
-    pricing=ProviderPricing(input_cost_per_1k=0.001, output_cost_per_1k=0.003),
-    capabilities=ProviderCapabilities(
-        chat=True,
-        streaming=True,
-        tools=True,
-        vision=False,
-        embeddings=False,
-        audio=False,
-        reasoning=False,
-        rerank=False,
-        tts=False,
-        transcription=False,
-    ),
-    aliases=["step-1216"],
+# ---------------------------------------------------------------------------
+# MiniMax — verified against https://platform.minimax.io/docs/api-reference
+# Model ids are case-sensitive ("MiniMax-M3", not "minimax-m3").
+# ---------------------------------------------------------------------------
+
+MINIMAX_CONFIG = ProviderConfig(
+    name="minimax",
+    display_name="MiniMax",
+    base_url="https://api.minimax.io/v1",
+    auth_type=AuthType.BEARER_TOKEN,
+    api_key_env_var="MINIMAX_API_KEY",
+    models={
+        "MiniMax-M3": _chat_model(
+            "MiniMax-M3", "MiniMax M3", context_window=1_000_000, max_output_tokens=65_536
+        ),
+        "MiniMax-M2.7": _chat_model(
+            "MiniMax-M2.7", "MiniMax M2.7", context_window=204_800, max_output_tokens=32_768
+        ),
+        "MiniMax-M2.7-highspeed": _chat_model(
+            "MiniMax-M2.7-highspeed",
+            "MiniMax M2.7 (high speed)",
+            context_window=204_800,
+            max_output_tokens=32_768,
+        ),
+        "MiniMax-M2.5": _chat_model(
+            "MiniMax-M2.5", "MiniMax M2.5", context_window=204_800, max_output_tokens=32_768
+        ),
+        "MiniMax-M2.1": _chat_model(
+            "MiniMax-M2.1", "MiniMax M2.1", context_window=204_800, max_output_tokens=32_768
+        ),
+        "MiniMax-M2": _chat_model(
+            "MiniMax-M2", "MiniMax M2", context_window=204_800, max_output_tokens=32_768
+        ),
+        "embo-01": _embedding_model("embo-01", "MiniMax Embeddings", context_window=4_096),
+    },
+    default_model="MiniMax-M3",
+    default_embedding_model="embo-01",
+    api_version="v1",
+    timeout=45.0,
+    max_retries=3,
+    rate_limit_rpm=200,
+    rate_limit_tpm=20_000,
+    documentation_url="https://platform.minimax.io/docs",
 )
 
-_STEPFUN_VISION = ProviderModel(
-    id="stepfun-vision",
-    display_name="StepFun Vision",
-    context_window=128_000,
-    max_output_tokens=8_192,
-    pricing=ProviderPricing(input_cost_per_1k=0.002, output_cost_per_1k=0.006),
-    capabilities=ProviderCapabilities(
-        chat=True,
-        streaming=True,
-        tools=True,
-        vision=True,
-        embeddings=True,
-        audio=False,
-        reasoning=False,
-        rerank=False,
-        tts=False,
-        transcription=False,
-    ),
-    aliases=["step-vision-1216", "step-1216v"],
-)
+# ---------------------------------------------------------------------------
+# StepFun — best-effort (vendor catalogue not publicly enumerable)
+# ---------------------------------------------------------------------------
 
 STEPFUN_CONFIG = ProviderConfig(
     name="stepfun",
@@ -423,249 +405,97 @@ STEPFUN_CONFIG = ProviderConfig(
     auth_type=AuthType.BEARER_TOKEN,
     api_key_env_var="STEPFUN_API_KEY",
     models={
-        "stepfun-2.5": _STEPFUN_2_5,
-        "stepfun-vision": _STEPFUN_VISION,
+        "step-3.7-flash": _chat_model(
+            "step-3.7-flash",
+            "Step 3.7 Flash",
+            context_window=262_144,
+            max_output_tokens=32_768,
+            vision=True,
+        ),
+        "step-3.5-flash": _chat_model(
+            "step-3.5-flash", "Step 3.5 Flash", context_window=131_072, max_output_tokens=16_384
+        ),
+        "step-3": _chat_model(
+            "step-3",
+            "Step 3",
+            context_window=65_536,
+            max_output_tokens=16_384,
+            vision=True,
+            reasoning=True,
+        ),
     },
-    default_model="stepfun-2.5",
+    default_model="step-3.7-flash",
     api_version="v1",
     timeout=30.0,
     max_retries=3,
     rate_limit_rpm=100,
     rate_limit_tpm=15_000,
-    documentation_url="https://open.stepfun.com/docs",
+    documentation_url="https://platform.stepfun.com/docs",
+    regions={
+        "cn": RegionConfig(base_url="https://api.stepfun.com/v1"),
+        "intl": RegionConfig(base_url="https://api.stepfun.ai/v1"),
+    },
 )
 
-# Doubao — Phase 2
-_DOUBEO_PRO_32K = ProviderModel(
-    id="doubao-pro-32k",
-    display_name="Doubao Pro 32K",
-    context_window=32_000,
-    max_output_tokens=8_192,
-    pricing=ProviderPricing(input_cost_per_1k=0.0007, output_cost_per_1k=0.0021),
-    capabilities=ProviderCapabilities(
-        chat=True,
-        streaming=True,
-        tools=True,
-        vision=False,
-        embeddings=False,
-        audio=False,
-        reasoning=False,
-        rerank=False,
-        tts=False,
-        transcription=False,
-    ),
-    aliases=["doubao-pro-32k-241115", "doubao-pro-32k-latest"],
-)
-
-_DOUBEO_VISION = ProviderModel(
-    id="doubao-vision",
-    display_name="Doubao Vision",
-    context_window=128_000,
-    max_output_tokens=8_192,
-    pricing=ProviderPricing(input_cost_per_1k=0.002, output_cost_per_1k=0.006),
-    capabilities=ProviderCapabilities(
-        chat=True,
-        streaming=True,
-        tools=True,
-        vision=True,
-        embeddings=True,
-        audio=False,
-        reasoning=False,
-        rerank=False,
-        tts=False,
-        transcription=False,
-    ),
-    aliases=["doubao-vision-v0"],
-)
-
-_DOUBEO_EMBEDDING = ProviderModel(
-    id="doubao-embedding",
-    display_name="Doubao Embedding",
-    context_window=8_192,
-    max_output_tokens=1,
-    pricing=ProviderPricing(input_cost_per_1k=0.0003, output_cost_per_1k=0.0),
-    capabilities=ProviderCapabilities(
-        chat=False,
-        streaming=False,
-        tools=False,
-        vision=False,
-        embeddings=True,
-        audio=False,
-        reasoning=False,
-        rerank=False,
-        tts=False,
-        transcription=False,
-    ),
-    aliases=["doubao-embedding-text-01"],
-)
+# ---------------------------------------------------------------------------
+# Doubao — ByteDance Volcengine Ark. Best-effort.
+# The Lite/Pro classics and the 1.5 thinking variants were retired; the
+# current line is Seed 1.6 / Seed 2.0.
+# ---------------------------------------------------------------------------
 
 DOUBAO_CONFIG = ProviderConfig(
     name="doubao",
-    display_name="Doubao (ByteDance)",
+    display_name="Doubao (ByteDance Volcengine Ark)",
     base_url="https://ark.cn-beijing.volces.com/api/v3",
     auth_type=AuthType.BEARER_TOKEN,
-    api_key_env_var="DOUBAO_API_KEY",
+    api_key_env_var="ARK_API_KEY",
     models={
-        "doubao-pro-32k": _DOUBEO_PRO_32K,
-        "doubao-vision": _DOUBEO_VISION,
-        "doubao-embedding": _DOUBEO_EMBEDDING,
+        "doubao-seed-2-0-pro": _chat_model(
+            "doubao-seed-2-0-pro",
+            "Doubao Seed 2.0 Pro",
+            context_window=262_144,
+            max_output_tokens=32_768,
+            reasoning=True,
+        ),
+        "doubao-seed-2-0-code": _chat_model(
+            "doubao-seed-2-0-code",
+            "Doubao Seed 2.0 Code",
+            context_window=262_144,
+            max_output_tokens=32_768,
+        ),
+        "doubao-seed-1-8": _chat_model(
+            "doubao-seed-1-8", "Doubao Seed 1.8", context_window=262_144, max_output_tokens=32_768
+        ),
+        "doubao-seed-1-6": _chat_model(
+            "doubao-seed-1-6", "Doubao Seed 1.6", context_window=262_144, max_output_tokens=32_768
+        ),
+        "doubao-seed-1-6-vision": _chat_model(
+            "doubao-seed-1-6-vision",
+            "Doubao Seed 1.6 Vision",
+            context_window=262_144,
+            max_output_tokens=32_768,
+            vision=True,
+        ),
+        "doubao-embedding-vision-251215": _embedding_model(
+            "doubao-embedding-vision-251215",
+            "Doubao Vision Embedding",
+            context_window=8_192,
+        ),
     },
-    default_model="doubao-pro-32k",
+    default_model="doubao-seed-2-0-pro",
+    default_embedding_model="doubao-embedding-vision-251215",
     api_version="v3",
     timeout=45.0,
     max_retries=3,
     rate_limit_rpm=180,
     rate_limit_tpm=25_000,
-    documentation_url="https://www.volcengine.com/docs",
+    documentation_url="https://www.volcengine.com/docs/82379",
     organization_required=True,
 )
 
-# MiniMax — Phase 2
-_MINIMAX_M2_5 = ProviderModel(
-    id="minimax-m2.5",
-    display_name="MiniMax M2.5",
-    context_window=200_000,
-    max_output_tokens=8_192,
-    pricing=ProviderPricing(input_cost_per_1k=0.0005, output_cost_per_1k=0.0015),
-    capabilities=ProviderCapabilities(
-        chat=True,
-        streaming=True,
-        tools=True,
-        vision=True,
-        embeddings=True,
-        audio=False,
-        reasoning=False,
-        rerank=False,
-        tts=False,
-        transcription=False,
-    ),
-    aliases=["minimax-m2.5-turbo", "minimax-v2-0"],
-)
-
-_MINIMAX_EMBEDDING = ProviderModel(
-    id="minimax-embedding",
-    display_name="MiniMax Embedding",
-    context_window=8_192,
-    max_output_tokens=1,
-    pricing=ProviderPricing(input_cost_per_1k=0.0003, output_cost_per_1k=0.0),
-    capabilities=ProviderCapabilities(
-        chat=False,
-        streaming=False,
-        tools=False,
-        vision=False,
-        embeddings=True,
-        audio=False,
-        reasoning=False,
-        rerank=False,
-        tts=False,
-        transcription=False,
-    ),
-    aliases=["minimax-embedding-0715"],
-)
-
-MINIMAX_CONFIG = ProviderConfig(
-    name="minimax",
-    display_name="MiniMax",
-    base_url="https://api.minimax.chat/v1",
-    auth_type=AuthType.BEARER_TOKEN,
-    api_key_env_var="MINIMAX_API_KEY",
-    models={
-        "minimax-m2.5": _MINIMAX_M2_5,
-        "minimax-embedding": _MINIMAX_EMBEDDING,
-    },
-    default_model="minimax-m2.5",
-    api_version="v1",
-    timeout=45.0,
-    max_retries=3,
-    rate_limit_rpm=200,
-    rate_limit_tpm=20_000,
-    documentation_url="https://platform.minimaxi.chat/docs",
-)
-
-# Hunyuan — Phase 3
-_HUNYUAN_TURBO = ProviderModel(
-    id="hunyuan-turbo",
-    display_name="Hunyuan Turbo",
-    context_window=131_072,
-    max_output_tokens=8_192,
-    pricing=ProviderPricing(input_cost_per_1k=0.001, output_cost_per_1k=0.002),
-    capabilities=ProviderCapabilities(
-        chat=True,
-        streaming=True,
-        tools=True,
-        vision=False,
-        embeddings=False,
-        audio=False,
-        reasoning=False,
-        rerank=False,
-        tts=False,
-        transcription=False,
-    ),
-    aliases=["hunyuan-turbo-128k"],
-)
-
-_HUNYUAN_PRO = ProviderModel(
-    id="hunyuan-pro",
-    display_name="Hunyuan Pro",
-    context_window=200_000,
-    max_output_tokens=8_192,
-    pricing=ProviderPricing(input_cost_per_1k=0.0015, output_cost_per_1k=0.003),
-    capabilities=ProviderCapabilities(
-        chat=True,
-        streaming=True,
-        tools=True,
-        vision=False,
-        embeddings=False,
-        audio=False,
-        reasoning=True,
-        rerank=False,
-        tts=False,
-        transcription=False,
-    ),
-    aliases=["hunyuan-pro-200k"],
-)
-
-_HUNYUAN_VISION = ProviderModel(
-    id="hunyuan-vision",
-    display_name="Hunyuan Vision",
-    context_window=200_000,
-    max_output_tokens=4_096,
-    pricing=ProviderPricing(input_cost_per_1k=0.003, output_cost_per_1k=0.006),
-    capabilities=ProviderCapabilities(
-        chat=True,
-        streaming=True,
-        tools=True,
-        vision=True,
-        embeddings=True,
-        audio=False,
-        reasoning=False,
-        rerank=False,
-        tts=False,
-        transcription=False,
-    ),
-    aliases=["hunyuan-vision-1120"],
-)
-
-_HUNYUAN_EMBEDDING = ProviderModel(
-    id="hunyuan-embedding",
-    display_name="Hunyuan Embedding",
-    context_window=8_192,
-    max_output_tokens=1,
-    pricing=ProviderPricing(input_cost_per_1k=0.0002, output_cost_per_1k=0.0),
-    capabilities=ProviderCapabilities(
-        chat=False,
-        streaming=False,
-        tools=False,
-        vision=False,
-        embeddings=True,
-        audio=False,
-        reasoning=False,
-        rerank=False,
-        tts=False,
-        transcription=False,
-    ),
-    aliases=["hunyuan-embedding-embedding"],
-)
+# ---------------------------------------------------------------------------
+# Hunyuan — Tencent Cloud. Best-effort.
+# ---------------------------------------------------------------------------
 
 HUNYUAN_CONFIG = ProviderConfig(
     name="hunyuan",
@@ -674,18 +504,41 @@ HUNYUAN_CONFIG = ProviderConfig(
     auth_type=AuthType.BEARER_TOKEN,
     api_key_env_var="HUNYUAN_API_KEY",
     models={
-        "hunyuan-turbo": _HUNYUAN_TURBO,
-        "hunyuan-pro": _HUNYUAN_PRO,
-        "hunyuan-vision": _HUNYUAN_VISION,
-        "hunyuan-embedding": _HUNYUAN_EMBEDDING,
+        "hunyuan-t1-latest": _chat_model(
+            "hunyuan-t1-latest",
+            "Hunyuan T1",
+            context_window=262_144,
+            max_output_tokens=16_384,
+            reasoning=True,
+        ),
+        "hunyuan-turbo-latest": _chat_model(
+            "hunyuan-turbo-latest",
+            "Hunyuan Turbo",
+            context_window=131_072,
+            max_output_tokens=8_192,
+        ),
+        "hunyuan-pro": _chat_model(
+            "hunyuan-pro", "Hunyuan Pro", context_window=262_144, max_output_tokens=8_192
+        ),
+        "hunyuan-vision": _chat_model(
+            "hunyuan-vision",
+            "Hunyuan Vision",
+            context_window=131_072,
+            max_output_tokens=8_192,
+            vision=True,
+        ),
+        "hunyuan-embedding": _embedding_model(
+            "hunyuan-embedding", "Hunyuan Embedding", context_window=8_192
+        ),
     },
-    default_model="hunyuan-turbo",
+    default_model="hunyuan-turbo-latest",
+    default_embedding_model="hunyuan-embedding",
     api_version="v1",
     timeout=45.0,
     max_retries=3,
     rate_limit_rpm=150,
     rate_limit_tpm=20_000,
-    documentation_url="https://cloud.tencent.com/document/tracking",
+    documentation_url="https://cloud.tencent.com/document/product/1729",
     organization_required=True,
 )
 
@@ -694,8 +547,7 @@ HUNYUAN_CONFIG = ProviderConfig(
 # Registry
 # ---------------------------------------------------------------------------
 
-# The canonical, immutable set of provider configurations.
-# ``PROVIDER_REGISTRY`` is a *mutable* dict so that Phase 2's loader can
+# ``PROVIDER_REGISTRY`` is a *mutable* dict so that the config-file loader can
 # inject user-supplied configs at runtime, but the built-in providers are
 # never removed.
 PROVIDER_REGISTRY: dict[str, ProviderConfig] = {
@@ -779,12 +631,34 @@ def get_default_model(provider_name: str) -> str:
     return config.default_model
 
 
+def find_providers_for_model(
+    model_id: str,
+    registry: dict[str, ProviderConfig] | None = None,
+) -> list[str]:
+    """
+    Return the names of every registered provider that knows *model_id*.
+
+    Powers provider inference, so ``UniversalAI(model="glm-4.7")`` can route
+    without the caller naming the provider.  An empty list means no provider
+    declares the id — which is not the same as the id being invalid, since
+    unregistered ids are passed through.
+
+    :param model_id: Model id or alias (case-sensitive, as providers are).
+    :param registry: Registry to search.  Defaults to ``PROVIDER_REGISTRY``.
+    :return: Matching provider names in :data:`PROVIDER_ORDER` sequence.
+    """
+    source = PROVIDER_REGISTRY if registry is None else registry
+    ordered = [name for name in PROVIDER_ORDER if name in source]
+    ordered += [name for name in source if name not in ordered]
+    return [name for name in ordered if source[name].knows_model(model_id)]
+
+
 def register_provider(config: ProviderConfig, override: bool = False) -> ProviderConfig:
     """
     Dynamically register an additional provider at runtime.
 
-    This is used by Phase 2's config-file loader to merge user-supplied
-    providers with the built-in set.
+    This is used by the config-file loader to merge user-supplied providers
+    with the built-in set.
 
     :param config:   Validated :class:`ProviderConfig` to register.
     :param override: If ``True``, overwrite an existing provider with the

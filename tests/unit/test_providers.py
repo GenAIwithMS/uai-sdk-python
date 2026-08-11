@@ -198,14 +198,15 @@ class TestGetProviderConfig:
 
 class TestGetModelInfo:
     def test_get_deepseek_chat_model(self):
-        model = get_model_info("deepseek", "deepseek-chat")
-        assert model.id == "deepseek-chat"
+        model = get_model_info("deepseek", "deepseek-v4-flash")
+        assert model.id == "deepseek-v4-flash"
         assert model.capabilities.chat is True
         assert model.capabilities.vision is False
 
-    def test_get_deepseek_by_alias(self):
-        model = get_model_info("deepseek", "deepseek-chat-latest")
-        assert model.id == "deepseek-chat"
+    def test_retired_v3_ids_resolve_to_their_successor(self):
+        """``deepseek-chat``/``deepseek-reasoner`` were retired 2026-07-24."""
+        for legacy in ("deepseek-chat", "deepseek-reasoner", "deepseek-chat-latest"):
+            assert get_model_info("deepseek", legacy).id == "deepseek-v4-flash"
 
     def test_get_qwen_vl_model(self):
         model = get_model_info("qwen", "qwen-vl-max")
@@ -233,10 +234,10 @@ class TestGetModelInfo:
 
 class TestGetDefaultModel:
     def test_deepseek_default(self):
-        assert get_default_model("deepseek") == "deepseek-chat"
+        assert get_default_model("deepseek") == "deepseek-v4-flash"
 
     def test_qwen_default(self):
-        assert get_default_model("qwen") == "qwen-plus"
+        assert get_default_model("qwen") == "qwen3.7-plus"
 
     def test_glm_default(self):
         assert get_default_model("glm") == "glm-4.7"
@@ -268,10 +269,11 @@ class TestCheckCapability:
         assert "deepseek" in str(exc_info.value)
 
     def test_reasoner_capability(self):
-        # deepseek-reasoner supports reasoning, deepseek-chat does not
-        check_capability("deepseek", "deepseek-reasoner", "reasoning")
-        with pytest.raises(FeatureNotSupportedError, match="reasoning"):
-            check_capability("deepseek", "deepseek-chat", "reasoning")
+        # Under V4 thinking mode is a request parameter, so both ids reason.
+        check_capability("deepseek", "deepseek-v4-pro", "reasoning")
+        check_capability("deepseek", "deepseek-v4-flash", "reasoning")
+        with pytest.raises(FeatureNotSupportedError, match="vision"):
+            check_capability("deepseek", "deepseek-v4-flash", "vision")
 
     def test_unknown_provider_raises(self):
         with pytest.raises(ValueError, match="not registered"):
@@ -284,15 +286,15 @@ class TestCheckCapability:
     def test_minimax_audio_not_implemented(self):
         # MiniMax voice features are intentionally not yet implemented
         with pytest.raises(FeatureNotSupportedError, match="audio"):
-            check_capability("minimax", "minimax-m2.5", "audio")
+            check_capability("minimax", "MiniMax-M3", "audio")
         with pytest.raises(FeatureNotSupportedError, match="tts"):
-            check_capability("minimax", "minimax-m2.5", "tts")
+            check_capability("minimax", "MiniMax-M3", "tts")
         with pytest.raises(FeatureNotSupportedError, match="transcription"):
-            check_capability("minimax", "minimax-m2.5", "transcription")
+            check_capability("minimax", "MiniMax-M3", "transcription")
 
     def test_glm_no_streaming_for_embedding(self):
         with pytest.raises(FeatureNotSupportedError, match="streaming"):
-            check_capability("glm", "glm-embedding", "streaming")
+            check_capability("glm", "embedding-3", "streaming")
 
 
 # ---------------------------------------------------------------------------
@@ -362,9 +364,11 @@ class TestCapabilityMatrix:
             ("qwen", {"chat", "streaming", "tools", "vision", "embeddings", "rerank"}),
             ("glm", {"chat", "streaming", "tools", "embeddings", "rerank"}),
             ("kimi", {"chat", "streaming", "tools"}),
-            ("stepfun", {"chat", "streaming", "tools", "vision", "embeddings"}),
+            # StepFun publishes no embeddings model we could verify; see providers.py.
+            ("stepfun", {"chat", "streaming", "tools", "vision", "reasoning"}),
             ("doubao", {"chat", "streaming", "tools", "vision", "embeddings"}),
-            ("minimax", {"chat", "streaming", "tools", "vision", "embeddings"}),
+            # MiniMax vision lives in the separate abab-vl line, not the M-series.
+            ("minimax", {"chat", "streaming", "tools", "embeddings"}),
             ("hunyuan", {"chat", "streaming", "tools", "vision", "embeddings"}),
         ],
     )
@@ -377,9 +381,11 @@ class TestCapabilityMatrix:
     @pytest.mark.parametrize(
         "provider_name,disabled_cap",
         [
+            # GLM (glm-4.6v) and Kimi (moonshot-v1-*-vision-preview) do ship
+            # vision models, so they are no longer listed as lacking it.
             ("deepseek", "vision"),
-            ("glm", "vision"),
-            ("kimi", "vision"),
+            ("glm", "audio"),
+            ("kimi", "embeddings"),
             ("doubao", "tts"),
             ("hunyuan", "tts"),
             ("minimax", "tts"),

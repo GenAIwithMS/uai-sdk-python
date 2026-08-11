@@ -12,7 +12,7 @@ client = UniversalAI(api_key="sk-...", provider="deepseek")
 
 result = client.chat(
     messages=[{"role": "user", "content": "Explain quantum computing in 2 sentences."}],
-    model="deepseek-chat",
+    model="deepseek-v4-flash",
 )
 print(result.content)
 ```
@@ -71,8 +71,8 @@ before the request leaves your process. Use `client.supports()` to
 pre-flight:
 
 ```python
-client.supports("tools", model="deepseek-chat")          # -> True
-client.supports("vision", model="deepseek-chat")         # -> False
+client.supports("tools", model="deepseek-v4-flash")          # -> True
+client.supports("vision", model="deepseek-v4-flash")         # -> False
 client.supports("vision", provider="qwen", model="qwen-vl-max")  # -> True
 ```
 

@@ -7,7 +7,7 @@
 ```python
 chunks = client.chat(
     messages=[{"role": "user", "content": "Write a 5-paragraph essay."}],
-    model="qwen-plus",
+    model="qwen3.7-plus",
     stream=True,
 )
 
