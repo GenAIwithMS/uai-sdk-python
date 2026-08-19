@@ -74,6 +74,59 @@ poetry install --with dev
 
 ---
 
+## 🐳 Docker / Podman
+
+An official image ships on [Docker Hub](https://hub.docker.com/r/genaiwithms/uai-sdk)
+with the `uai` CLI as its entrypoint. It works identically with both **Podman**
+and **Docker**.
+
+```bash
+# Docker
+docker pull genaiwithms/uai-sdk:latest
+
+# Podman
+podman pull docker.io/genaiwithms/uai-sdk:latest
+```
+
+Every CLI command runs the same as a local install, just with `docker run` /
+`podman run` in front:
+
+```bash
+podman run --rm genaiwithms/uai-sdk:latest list-providers
+podman run --rm genaiwithms/uai-sdk:latest list-models deepseek
+```
+
+Provide the API key with `-e` and run real requests:
+
+```bash
+podman run --rm \
+    -e DEEPSEEK_API_KEY="sk-..." \
+    genaiwithms/uai-sdk:latest benchmark --provider deepseek
+```
+
+The container runs as a non-root user (`uai`) and the CLI only writes to
+stdout, so no volume mounts are required.
+
+<details>
+<summary>Building the image yourself</summary>
+
+From the repository root, tag it for your own Docker Hub namespace:
+
+```bash
+# Docker
+docker build -t <user>/uai-sdk:0.2.0 .
+docker push <user>/uai-sdk:0.2.0
+
+# Podman
+podman build -t docker.io/<user>/uai-sdk:0.2.0 .
+podman login docker.io
+podman push docker.io/<user>/uai-sdk:0.2.0
+```
+
+</details>
+
+---
+
 ## 🚀 Quick Start
 
 Set the API key for the provider you want, then go:
