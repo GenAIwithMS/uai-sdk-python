@@ -1,0 +1,31 @@
+# Version control
+.git
+.gitignore
+
+# Caches and tooling artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Packaging output
+build/
+dist/
+wheels/
+
+# Tests and documentation (not needed to build the package)
+tests/
+docs/
+.github/
+
+# Local environment
+.env
+.env.*
+.venv
+venv/
+*.local
